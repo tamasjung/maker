@@ -5,19 +5,19 @@
 
 (defgoal d [] 5)
 (defgoal three-times [[c d]] (* 3 c))
-(defgoal twice [three-times] (* 2 three-times))
+(defgoal six-times [three-times] (* 2 three-times))
 
 (deftest inserted-test
-  (is (= (make twice)
+  (is (= (make six-times)
          30))
   (is (= (with
            [d 10]
-           (make twice))
+           (make six-times))
          60))
   (is (= (with
            [d 10
             d 20]
-           (make twice))
+           (make six-times))
          120)))
 
 (deftest test-different-ns
