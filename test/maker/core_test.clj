@@ -48,47 +48,6 @@
   (is (thrown? Throwable
                (make goal-with-dyn-dep))))
 
-(defn factor
-  []
-  4)
-
-(defn i-s
-  []
-  (range 2))
-
-(declare i)
-
-;;(defrelation is i)
-
-(defn j
-  [i factor]
-  (* factor i))
-
-(defn item
-  [j]
-  (inc j))
-
-;;v.
-(defn ^:in-context items
-  [i-s]
-  (for [i i-s]
-    (make item)))
-
-(defn sum-of-items
-  [items]
-  (reduce + 0 items))
-
-(defn ^:in-context bigger-sum-of-items
-  []
-  (let [i-s (range 10)]
-    (make sum-of-items)))
-
-(deftest in-context-test
-  (is (= (make bigger-sum-of-items)
-         190))
-  (is (= (make items)
-         (list 1 5))))
-
 (defn fa [] 1)
 (defn fb [fa] (* 2 fa))
 (defn fc [fb] (* 3 fb))

@@ -153,14 +153,9 @@
   [goal]
   (let [deps (-> goal goal-deps)
         locals (->> deps (map local-dep-symbol))]
-      (if-let [in-context-body (-> goal
-                                   goal-meta
-                                   :in-context-body)]
-        `(let [~@(interleave (map goal->name deps)
-                             locals)]
-           ~@in-context-body)
-        `(~(goal-maker-symbol goal)
-          ~@locals))))
+    `(~(goal-maker-symbol goal) ~@(->> goal
+                                       goal-deps
+                                       (map local-dep-symbol)))))
 
 (declare make-internal)
 
@@ -282,10 +277,7 @@
                   :goal true
                   :deps (quote ~(mapv (comp alias->fqn
                                             goal-maker-symbol)
-                                      deps))
-                  :in-context-body (quote ~(if (-> the-name meta :in-context)
-                                             body
-                                             nil)))))
+                                      deps)))))
 
 (defmacro declare-goal
   "Declare a goal"
