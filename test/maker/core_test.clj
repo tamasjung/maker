@@ -3,7 +3,6 @@
             [maker.core :as m :refer :all]
             [clojure.pprint :refer :all]
             [ns2 :as ns-two]))
-(defn log-> [& xs] (apply prn "log->" xs) (first xs)) (defn log->> [& xs] (apply prn "log->>" xs) (last xs))
 
 (deftest munge-test
   (are [s] (-> s inj-munge inj-munge-inv (= s))
@@ -41,19 +40,11 @@
 (defn goal-with-dyn-dep [dd] (+ 10 dd))
 
 (deftest test-dynamic-goal
-  (is (= (let
-          [dd 1]
+  (is (= (let [dd 1]
            (make goal-with-dyn-dep))
          11))
   (is (thrown? Throwable
                (make goal-with-dyn-dep))))
-
-(defn fa [] 1)
-(defn fb [fa] (* 2 fa))
-(defn fc [fb] (* 3 fb))
-(deftest test-plain-functions
-  (is (= (make fc)
-         6)))
 
 (defn generator-items
   []
@@ -71,3 +62,42 @@
   (is (= (last (make rel-items))
          18)))
 
+(defn generator-items2
+  []
+  ["a" "b"])
+
+(declare ^{:for 'generator-items2} generator-item2)
+
+(defn pair
+  [generator-item generator-item2]
+  [generator-item generator-item2])
+
+(def ^{:relation 'pair} pairs)
+
+(deftest test-comb
+  (is (= (count (make pairs))
+         20)))
+
+(defn m [] {:a 1 :b 2})
+(defn v [] [11 22])
+
+(defn destr-goal
+  [{:keys [a b] :as m}  [c :as v]]
+  (list a b m c v))
+
+(deftest test-destr
+  (is (= (make destr-goal)
+         (list 1 2 {:a 1 :b 2} 11 [11 22]))))
+
+(declare dm)
+(declare dv)
+
+(defn d-destr-goal
+  [{:keys [a b] :as dm} [c :as dv]]
+  (list a b dm c dv))
+
+(deftest test-d-destr
+  (is (= (let [dm {:a 1 :b 2}
+               dv [11 22]]
+           (make d-destr-goal))
+         (list 1 2 {:a 1 :b 2} 11 [11 22]))))

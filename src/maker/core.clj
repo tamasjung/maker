@@ -40,7 +40,6 @@
   (let []
     (vec (map-longer set/union s1 s2))))
 
-
 (defn inj-munge-inv
   [s]
   (-> s
@@ -87,7 +86,7 @@
 (defn dep-param-symbol
   "Returns the parameter form."
   [dep]
-  dep)
+  (whole-symbol dep))
 
 (defn goal-maker-symbol
   "Calculates the goal maker fn's symbol"
@@ -105,7 +104,7 @@
 (defn local-dep-symbol
   "Returns the local bind symbol for a dependency"
   [dep]
-  (-> dep alias->fqn split-fqn second symbol))
+  (-> dep whole-symbol alias->fqn split-fqn second symbol))
 
 (defn goal-deps
   "Reads the deps from the goal's meta"
@@ -118,15 +117,15 @@
 (defn is-goal?
   "Check the meta for the :goal flag"
   [sym]
-  (-> sym symbol->meta :goal))
+  (-> sym whole-symbol symbol->meta :goal))
 
 (defn relation
   [goal]
-  (-> goal symbol->meta :relation))
+  (-> goal whole-symbol symbol->meta :relation))
 
 (defn iteration-dep
   [goal]
-  (-> goal symbol->meta :for))
+  (-> goal whole-symbol symbol->meta :for))
 
 (defn goal->namespace
   "Returns the namespace of the goal symbol"
@@ -315,12 +314,11 @@
   "Create an environment for making goals by binding fully-qualified symbols
   virtually."
   [pairs & body]
-  (assert (-> pairs count even?) "With expected even number of forms in the first argument")
+  (assert (-> pairs count even?)
+          "With expected even number of forms in the first argument")
   `(let [~@(->> pairs
                 (partition 2)
                 (map (juxt (comp local-dep-symbol alias->fqn first)
                            second))
                 (reduce into []))]
-     ~@body))
-;;(defn a [^{:ref a.b/f} f])
-;;(-> a var meta :arglists ffirst meta)
+     ~@body)) 
