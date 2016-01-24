@@ -5,10 +5,9 @@
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.8.0-RC3"]]
   :source-paths ["src"]
-  :profiles {:dev {:plugins [[cider/cider-nrepl "0.11.0-SNAPSHOT"]
-                             [org.clojure/tools.nrepl "0.2.12"
-                             :exclusions [[org.clojure/clojure]]]
-                             [refactor-nrepl "2.0.0-SNAPSHOT"]
-                             [com.jakemccrary/lein-test-refresh "0.12.0"]]
-                   :test-refresh {:changes-only true}
-                   :dependencies [[org.clojure/tools.nrepl "0.2.12"]]}})
+  :profiles {:dev [:dev-common :dev-local]
+             :dev-common {:plugins [[org.clojure/tools.nrepl "0.2.12"
+                                     :exclusions [[org.clojure/clojure]]]
+                                    [com.jakemccrary/lein-test-refresh "0.12.0"]]
+                          :test-refresh {:changes-only true}
+                          :dependencies [[org.clojure/tools.nrepl "0.2.12"]]}})

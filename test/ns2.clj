@@ -2,6 +2,6 @@
   (:require [maker.core :as g]
             [ns1 :as ns-one]))
 
-(g/defgoal b
+#_(g/defgoal b
            [[c ns-one/a]]
            (* c 5))
