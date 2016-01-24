@@ -3,7 +3,7 @@
             [maker.core :as m :refer :all]
             [clojure.pprint :refer :all]
             [ns2 :as ns-two]))
-(defn log-> [& xs] (apply prn "log->" xs) (first xs))(defn log->> [& xs] (apply prn "log->>" xs) (last xs))
+(defn log-> [& xs] (apply prn "log->" xs) (first xs)) (defn log->> [& xs] (apply prn "log->>" xs) (last xs))
 
 (deftest munge-test
   (are [s] (-> s inj-munge inj-munge-inv (= s))
@@ -15,9 +15,9 @@
   (is (= (conj-top [#{}] 'a)
          [#{'a}])))
 
-(defgoal d [] 5)
-(defgoal three-times [d] (* 3 d))
-(defgoal six-times [three-times] (* 2 three-times))
+(defn d [] 5)
+(defn three-times [d] (* 3 d))
+(defn six-times [three-times] (* 2 three-times))
 
 (deftest inserted-test
   (is (= (make six-times)
@@ -31,57 +31,57 @@
          120)))
 
 #_(deftest test-different-ns
-  (is (= 55 (make ns-two/b)))
-  (is (= (let [ns1/a 22]
-           (make ns-two/b))
-         110)))
+    (is (= 55 (make ns-two/b)))
+    (is (= (let [ns1/a 22]
+             (make ns-two/b))
+           110)))
 
-(declare-goal dd)
+(declare dd)
 
-(defgoal goal-with-dyn-dep [dd] (+ 10 dd))
+(defn goal-with-dyn-dep [dd] (+ 10 dd))
 
 (deftest test-dynamic-goal
   (is (= (let
-           [dd 1]
+          [dd 1]
            (make goal-with-dyn-dep))
          11))
   (is (thrown? Throwable
                (make goal-with-dyn-dep))))
 
-(defgoal factor
-         []
-         4)
+(defn factor
+  []
+  4)
 
-(defgoal i-s
-         []
-         (range 2))
+(defn i-s
+  []
+  (range 2))
 
-(declare-goal i)
+(declare i)
 
 ;;(defrelation is i)
 
-(defgoal j
-         [i factor]
-         (* factor i))
+(defn j
+  [i factor]
+  (* factor i))
 
-(defgoal item
-         [j]
-         (inc j))
+(defn item
+  [j]
+  (inc j))
 
 ;;v.
-(defgoal ^:in-context items
-         [i-s]
-         (for [i i-s]
-           (make item)))
+(defn ^:in-context items
+  [i-s]
+  (for [i i-s]
+    (make item)))
 
-(defgoal sum-of-items
-         [items]
-         (reduce + 0 items))
+(defn sum-of-items
+  [items]
+  (reduce + 0 items))
 
-(defgoal ^:in-context bigger-sum-of-items
+(defn ^:in-context bigger-sum-of-items
   []
   (let [i-s (range 10)]
-        (make sum-of-items)))
+    (make sum-of-items)))
 
 (deftest in-context-test
   (is (= (make bigger-sum-of-items)
@@ -111,5 +111,4 @@
 (deftest test-relations
   (is (= (last (make rel-items))
          18)))
-
 
