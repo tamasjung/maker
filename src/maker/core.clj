@@ -1,6 +1,8 @@
 (ns maker.core
   (:require [clojure.set :as set]
-            [clojure.string :as string]))
+            [clojure.string :as string]
+            [clojure.pprint :as pprint]
+            [clojure.walk :as walk]))
 
 (defn inj-munge
   "Injective munge" ;;...it will be.
@@ -27,7 +29,7 @@
                 peek
                 (conj item)))))
 
-(defn map-longer 
+(defn map-longer
   [f c1 c2]
   (lazy-seq
    (let [s1 (seq c1) s2 (seq c2)]
@@ -49,7 +51,7 @@
 (defn whole-symbol
   "Returns the ':as' symbol or itself"
   [dep]
-  (cond 
+  (cond
     (symbol? dep) dep
     (map? dep) (:as dep)
     (vector? dep) (let [[as whole] (take-last 2 dep)]
@@ -91,7 +93,7 @@
 (defn goal-maker-symbol
   "Calculates the goal maker fn's symbol"
   [dep]
-  (whole-symbol dep))
+  (-> dep whole-symbol (str "*") symbol))
 
 (defn goal-meta
   [goal]
@@ -104,7 +106,9 @@
 (defn local-dep-symbol
   "Returns the local bind symbol for a dependency"
   [dep]
-  (-> dep whole-symbol alias->fqn split-fqn second symbol))
+  (-> dep whole-symbol goal-maker-symbol
+      alias->fqn split-fqn second butlast ;; cut the *
+      (->> (apply str)) symbol))
 
 (defn goal-deps
   "Reads the deps from the goal's meta"
@@ -121,11 +125,11 @@
 
 (defn relation
   [goal]
-  (-> goal whole-symbol symbol->meta :relation))
+  (-> goal whole-symbol goal-maker-symbol symbol->meta :relation))
 
 (defn iteration-dep
   [goal]
-  (-> goal whole-symbol symbol->meta :for))
+  (-> goal whole-symbol goal-maker-symbol symbol->meta :for))
 
 (defn goal->namespace
   "Returns the namespace of the goal symbol"
@@ -299,6 +303,17 @@
                   (apply concat))]
        ~(local-dep-symbol goal))))
 
+(defn print-generated-code
+  [form]
+  (->> form
+       (walk/postwalk
+        (fn [s] (cond
+                  (symbol? s) (or #_(goal->name s)
+                                  s)
+                  :default s)))
+       pprint/pprint)
+  form)
+
 (defmacro make-with
   "Make a goal out of the environment"
   [goal env]
@@ -309,6 +324,17 @@
 (defmacro make
   [goal]
   `(make-with ~goal ~&env))
+
+(defmacro prn-make-with ;; TODO can we do it somehow without duplication?
+  [goal env]
+  (-> goal
+      (handle-goal (-> &env keys set vector create-maker-state))
+      (make-internal goal true)
+      print-generated-code))
+
+(defmacro prn-make
+  [goal]
+  `(prn-make-with ~goal ~&env))
 
 (defmacro with
   "Create an environment for making goals by binding fully-qualified symbols
@@ -321,4 +347,4 @@
                 (map (juxt (comp local-dep-symbol alias->fqn first)
                            second))
                 (reduce into []))]
-     ~@body)) 
+     ~@body))

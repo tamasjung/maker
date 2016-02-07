@@ -14,9 +14,9 @@
   (is (= (conj-top [#{}] 'a)
          [#{'a}])))
 
-(defn d [] 5)
-(defn three-times [d] (* 3 d))
-(defn six-times [three-times] (* 2 three-times))
+(defn d* [] 5)
+(defn three-times* [d] (* 3 d))
+(defn six-times* [three-times] (* 2 three-times))
 
 (deftest inserted-test
   (is (= (make six-times)
@@ -35,9 +35,9 @@
              (make ns-two/b))
            110)))
 
-(declare dd)
+(declare dd*)
 
-(defn goal-with-dyn-dep [dd] (+ 10 dd))
+(defn goal-with-dyn-dep* [dd] (+ 10 dd))
 
 (deftest test-dynamic-goal
   (is (= (let [dd 1]
@@ -46,42 +46,51 @@
   (is (thrown? Throwable
                (make goal-with-dyn-dep))))
 
-(defn generator-items
+(def call-counter (atom 0))
+
+(defn item-factor*
   []
+  (swap! call-counter inc)
+  2)
+
+(defn generator-items*
+  [item-factor]
   (range 10))
 
-(declare ^{:for 'generator-items} generator-item)
+(declare ^{:for 'generator-items} generator-item*)
 
-(defn rel-item
-  [generator-item]
-  (* generator-item 2))
+(defn rel-item*
+  [generator-item item-factor]
+  (* generator-item item-factor))
 
-(declare ^{:relation 'rel-item} rel-items)
+(declare ^{:relation 'rel-item} rel-items*)
 
 (deftest test-relations
   (is (= (last (make rel-items))
          18)))
 
-(defn generator-items2
-  []
+(defn generator-items2*
+  [item-factor]
   ["a" "b"])
 
-(declare ^{:for 'generator-items2} generator-item2)
+(declare ^{:for 'generator-items2} generator-item2*)
 
-(defn pair
-  [generator-item generator-item2]
+(defn pair*
+  [item-factor generator-item generator-item2]
   [generator-item generator-item2])
 
-(def ^{:relation 'pair} pairs)
+(def ^{:relation 'pair} pairs*)
 
 (deftest test-comb
-  (is (= (count (make pairs))
-         20)))
+  (reset! call-counter 0)
+  (is (= (count (prn-make pairs))
+         20))
+  (is (= @call-counter 1)))
 
-(defn m [] {:a 1 :b 2})
-(defn v [] [11 22])
+(defn m* [] {:a 1 :b 2})
+(defn v* [] [11 22])
 
-(defn destr-goal
+(defn destr-goal*
   [{:keys [a b] :as m}  [c :as v]]
   (list a b m c v))
 
@@ -89,15 +98,15 @@
   (is (= (make destr-goal)
          (list 1 2 {:a 1 :b 2} 11 [11 22]))))
 
-(declare dm)
-(declare dv)
+(declare dm*)
+(declare dv*)
 
-(defn d-destr-goal
+(defn d-destr-goal*
   [{:keys [a b] :as dm} [c :as dv]]
   (list a b dm c dv))
 
 (deftest test-d-destr
   (is (= (let [dm {:a 1 :b 2}
                dv [11 22]]
-           (make d-destr-goal))
+           (prn-make d-destr-goal))
          (list 1 2 {:a 1 :b 2} 11 [11 22]))))
