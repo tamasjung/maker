@@ -57,7 +57,9 @@
     (vector? dep) (let [[as whole] (take-last 2 dep)]
                     (when (and (= :as as)
                                (symbol? whole))
-                      whole))))
+                      whole))
+    :default (throw (IllegalArgumentException.
+                     (str "Unrecogonized dependency:" dep ".")))))
 
 (defn dep-declaration-check
   "Check if the dependency is in correct form"
@@ -215,9 +217,12 @@
     (if (->> dep
              local-dep-symbol
              (some-contains (:env state)))
-      (recur state (rest deps))
-      (recur (handle-goal dep state)
-             (rest deps)))
+      (do (prn dep "====" state)
+          (recur state (rest deps)))
+      (do
+        (prn dep "===>" state)
+        (recur (handle-goal dep state)
+                 (rest deps))))
     state))
 
 (defmethod handle-goal :iteration
@@ -270,27 +275,6 @@
       (catch Throwable _
         (require r)))))
 
-(defmacro defgoal
-  [the-name deps & body]
-  `(do
-     (defn ~the-name [~@(map dep-param-symbol deps)]
-       ~@body)
-     (alter-meta! (var ~the-name)
-                  assoc
-                  :goal true
-                  :deps (quote ~(mapv (comp alias->fqn
-                                            goal-maker-symbol)
-                                      deps)))))
-
-(defmacro declare-goal
-  "Declare a goal"
-  [the-name]
-  `(defgoal ~the-name
-            []
-            (throw (ex-info ~(str "Goal definition is missing "
-                                            *ns* "/" the-name)
-                            {:type ::goal-runtime}))))
-
 (defn make-internal
   [state goal fail-on-opens]
   (let [{:keys [bindings requires open-bindings]} state]
@@ -308,8 +292,10 @@
   (->> form
        (walk/postwalk
         (fn [s] (cond
-                  (symbol? s) (or #_(goal->name s)
-                                  s)
+                  (symbol? s) (-> s
+                                  str
+                                  (string/replace #"^clojure.core/" "")
+                                  symbol)
                   :default s)))
        pprint/pprint)
   form)
@@ -348,3 +334,24 @@
                            second))
                 (reduce into []))]
      ~@body))
+
+(defmacro defgoal
+  [the-name deps & body]
+  `(do
+     (defn ~the-name [~@(map dep-param-symbol deps)]
+       ~@body)
+     (alter-meta! (var ~the-name)
+                  assoc
+                  :goal true
+                  :deps (quote ~(mapv (comp alias->fqn
+                                            goal-maker-symbol)
+                                      deps)))))
+
+(defmacro declare-goal
+  "Declare a goal"
+  [the-name]
+  `(defgoal ~the-name
+     []
+     (throw (ex-info ~(str "Goal definition is missing "
+                           *ns* "/" the-name)
+                     {:type ::goal-runtime}))))
