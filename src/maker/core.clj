@@ -17,17 +17,17 @@
 ;;env stack operations
 
 (defn some-contains
-  [env-stack item]
-  #_(assert (vector? env-stack) (str [env-stack item]))
-  (some #(% item) env-stack))
+  [env-stack dep]
+  #_(assert (vector? env-stack) (str [env-stack dep]))
+  (some #(% dep) env-stack))
 
 (defn conj-top
-  [env-stack item]
+  [env-stack dep]
   (-> env-stack
       pop
       (conj (-> env-stack
                 peek
-                (conj item)))))
+                (conj dep)))))
 
 (defn map-longer
   [f c1 c2]
@@ -158,10 +158,10 @@
   {:bindings []
    :env (or env [#{}])
    :reqs #{}
-   :open-bindings {}
-   :open-binding-list []})
+   :items {}
+   :item-list []})
 
-(defn combine-open-bindings
+(defn combine-items
   [m1 m2]
   (reduce-kv
    (fn [acc k v]
@@ -176,8 +176,8 @@
           old-state
           [[:bindings concat]
            [:reqs set/union]
-           [:open-bindings combine-open-bindings]
-           [:open-binding-list concat]]))
+           [:items combine-items]
+           [:item-list concat]]))
 
 (defn conj-top-dep-to-current-env
   [state goal]
@@ -212,8 +212,8 @@
 (defmethod handle-goal :iteration
   [goal old-state]
   (-> (combine-maker-state
-       {:open-bindings {goal []}
-        :open-binding-list [goal]
+       {:items {goal []}
+        :item-list [goal]
         :reqs #{(goal->namespace goal)}}
        old-state)
       (conj-top-dep-to-current-env goal)))
@@ -221,9 +221,9 @@
 (declare make-internal)
 
 (defn collector-maker-call
-  [goal {:keys [open-binding-list] :as state}]
+  [goal {:keys [item-list] :as state}]
   (let [rel (collector goal)]
-    `(for [~@(->> open-binding-list
+    `(for [~@(->> item-list
                   (map (juxt local-dep-symbol
                              (fn obm [a-goal]
                                (or (iteration-dep a-goal)
@@ -235,21 +235,21 @@
 
 (defmethod handle-goal :collector
   [goal old-state]
-  (let [stored-keys [:open-binding-list
-                     :open-bindings
+  (let [stored-keys [:item-list
+                     :items
                      :bindings]
         collector-state (run-on-deps (-> old-state
                                         (merge (-> (create-maker-state nil) ;;overrides tmp
                                                    (select-keys stored-keys)))
                                         (update :env conj #{}))
                                     [(-> goal collector)])
-        open-bindings-list (:open-binding-list collector-state)
+        item-list (:item-list collector-state)
         collector-maker (collector-maker-call goal collector-state)
         up-state (-> collector-state
                      (update :env pop)
                      (merge (select-keys old-state ;;restore state
                                          stored-keys))
-                     (run-on-deps (map iteration-dep open-bindings-list)))]
+                     (run-on-deps (map iteration-dep item-list)))]
     (-> (combine-maker-state
          {:bindings [[(local-dep-symbol goal) collector-maker]]
           :reqs #{(goal->namespace goal)}}
@@ -268,15 +268,15 @@
 (defmethod handle-goal :default
   [goal old-state]
   (let [dependencies-state (run-on-deps old-state (goal-deps goal))
-        open-bindings (->> dependencies-state
-                           :open-binding-list
+        items (->> dependencies-state
+                           :item-list
                            (map (comp (partial vector goal)
                                       vector))
                            (into {}))]
     (-> (combine-maker-state;a normal/plain dependency
          {:bindings [[(local-dep-symbol goal) (goal-maker-call goal)]]
           :reqs #{(goal->namespace goal)}
-          :open-bindings open-bindings}
+          :items items}
          dependencies-state)
         (conj-top-dep-to-current-env goal))))
 
@@ -291,11 +291,11 @@
 
 (defn make-internal
   [state goal fail-on-opens]
-  (let [{:keys [bindings requires open-bindings]} state]
+  (let [{:keys [bindings requires items]} state]
     (when (and fail-on-opens
-               (seq open-bindings))
+               (seq items))
       (throw (IllegalArgumentException.
-              (str "Open binding remained: " (string/join ", " open-bindings)))))
+              (str "Open binding remained: " (string/join ", " items)))))
     (load-depencies requires)
     `(let [~@(->> bindings
                   (apply concat))]
