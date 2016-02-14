@@ -16,19 +16,6 @@
 
 ;;env stack operations
 
-(defn some-contains
-  [env-stack dep]
-  #_(assert (vector? env-stack) (str [env-stack dep]))
-  (some #(% dep) env-stack))
-
-(defn conj-top
-  [env-stack dep]
-  (-> env-stack
-      pop
-      (conj (-> env-stack
-                peek
-                (conj dep)))))
-
 (defn map-longer
   [f c1 c2]
   (lazy-seq
@@ -36,11 +23,6 @@
      (when (or s1 s2)
        (cons (f (first s1) (first s2))
              (map-longer f (rest s1) (rest s2)))))))
-
-(defn merge-stack
-  [s1 s2]
-  (let []
-    (vec (map-longer set/union s1 s2))))
 
 (defn inj-munge-inv
   [s]
@@ -156,7 +138,7 @@
 (defn create-maker-state
   [env]
   {:bindings []
-   :env (or env [#{}])
+   :env (or env #{})
    :reqs #{}
    :items {}
    :item-list []})
@@ -179,12 +161,9 @@
            [:items combine-items]
            [:item-list concat]]))
 
-(defn conj-top-dep-to-current-env
+(defn conj-dep-to-current-env
   [state goal]
-  (-> state
-      :env
-      (conj-top (local-dep-symbol goal))
-      (->> (assoc state :env))))
+  (update state :env conj goal))
 
 (defn handler-selector
   [goal state]
@@ -200,13 +179,13 @@
   (if-let [dep (first deps)]
     (if (->> dep
              local-dep-symbol
-             (some-contains (:env state)))
+             ((:env state)))
       (do (prn dep "====" state)
           (recur state (rest deps)))
       (do
         (prn dep "===>" state)
         (recur (handle-goal dep state)
-                 (rest deps))))
+               (rest deps))))
     state))
 
 (defmethod handle-goal :iteration
@@ -216,7 +195,7 @@
         :item-list [goal]
         :reqs #{(goal->namespace goal)}}
        old-state)
-      (conj-top-dep-to-current-env goal)))
+      (conj-dep-to-current-env goal)))
 
 (declare make-internal)
 
@@ -234,19 +213,18 @@
        ~(make-internal state rel false))))
 
 (defmethod handle-goal :collector
-  [goal old-state]
+  [goal {:keys [env] :as old-state}]
   (let [stored-keys [:item-list
                      :items
                      :bindings]
         collector-state (run-on-deps (-> old-state
                                         (merge (-> (create-maker-state nil) ;;overrides tmp
-                                                   (select-keys stored-keys)))
-                                        (update :env conj #{}))
+                                                   (select-keys stored-keys))))
                                     [(-> goal collector)])
         item-list (:item-list collector-state)
         collector-maker (collector-maker-call goal collector-state)
         up-state (-> collector-state
-                     (update :env pop)
+                     (assoc :env env)
                      (merge (select-keys old-state ;;restore state
                                          stored-keys))
                      (run-on-deps (map iteration-dep item-list)))]
@@ -254,7 +232,7 @@
          {:bindings [[(local-dep-symbol goal) collector-maker]]
           :reqs #{(goal->namespace goal)}}
          up-state)
-        (conj-top-dep-to-current-env goal))))
+        (conj-dep-to-current-env goal))))
 
 (defn goal-maker-call
   "Creates the expression to make a goal by calling its function"
@@ -278,7 +256,7 @@
           :reqs #{(goal->namespace goal)}
           :items items}
          dependencies-state)
-        (conj-top-dep-to-current-env goal))))
+        (conj-dep-to-current-env goal))))
 
 (defn load-depencies
   "Call 'require' on every given namespace if necessary"
@@ -321,7 +299,7 @@
   "Make a goal out of the environment"
   [goal env]
   (-> goal
-      (handle-goal (-> env keys set vector create-maker-state))
+      (handle-goal (-> env keys set create-maker-state))
       (make-internal goal true)))
 
 (defmacro make
@@ -331,7 +309,7 @@
 (defmacro prn-make-with ;; TODO can we do it somehow without duplication?
   [goal env]
   (-> goal
-      (handle-goal (-> &env keys set vector create-maker-state))
+      (handle-goal (-> &env keys set create-maker-state))
       (make-internal goal true)
       print-generated-code))
 

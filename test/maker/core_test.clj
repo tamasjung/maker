@@ -10,7 +10,7 @@
     "a.b/c"
     "ab/c"))
 
-(deftest peek-conj-test
+#_(deftest peek-conj-test
   (is (= (conj-top [#{}] 'a)
          [#{'a}])))
 
