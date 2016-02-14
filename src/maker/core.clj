@@ -125,9 +125,9 @@
   [sym]
   (-> sym whole-symbol symbol->meta :goal))
 
-(defn relation
+(defn collector
   [goal]
-  (-> goal whole-symbol goal-maker-symbol symbol->meta :relation))
+  (-> goal whole-symbol goal-maker-symbol symbol->meta :collect))
 
 (defn iteration-dep
   [goal]
@@ -153,37 +153,21 @@
       second
       symbol))
 
-(defn goal-maker-call
-  "Creates the expression to make a goal by calling its function"
-  [goal]
-  (let [deps (-> goal goal-deps)
-        locals (->> deps (map local-dep-symbol))]
-    `(~(goal-maker-symbol goal) ~@(->> goal
-                                       goal-deps
-                                       (map local-dep-symbol)))))
-
-(declare make-internal)
-
-(defn relation-maker-call
-  [goal {:keys [open-binding-list] :as state}]
-  (let [rel (relation goal)]
-    `(for [~@(->> open-binding-list
-                  (map (juxt local-dep-symbol
-                             (fn obm [a-goal]
-                               (or (iteration-dep a-goal)
-                                   (throw (IllegalStateException.
-                                           (str "missing 'for' of "
-                                                a-goal)))))))
-                  (reduce into))]
-       ~(make-internal state rel false))))
-
 (defn create-maker-state
   [env]
   {:bindings []
    :env (or env [#{}])
    :reqs #{}
-   :open-bindings #{}
+   :open-bindings {}
    :open-binding-list []})
+
+(defn combine-open-bindings
+  [m1 m2]
+  (reduce-kv
+   (fn [acc k v]
+     (update acc k (fnil into []) v))
+   m1
+   m2))
 
 (defn combine-maker-state
   [new-state old-state]
@@ -192,7 +176,7 @@
           old-state
           [[:bindings concat]
            [:reqs set/union]
-           [:open-bindings set/union]
+           [:open-bindings combine-open-bindings]
            [:open-binding-list concat]]))
 
 (defn conj-top-dep-to-current-env
@@ -206,7 +190,7 @@
   [goal state]
   (cond
     (iteration-dep goal) :iteration
-    (relation goal) :relation
+    (collector goal) :collector
     :else :default))
 
 (defmulti handle-goal handler-selector)
@@ -228,41 +212,71 @@
 (defmethod handle-goal :iteration
   [goal old-state]
   (-> (combine-maker-state
-       {:open-bindings #{goal}
+       {:open-bindings {goal []}
         :open-binding-list [goal]
         :reqs #{(goal->namespace goal)}}
        old-state)
       (conj-top-dep-to-current-env goal)))
 
-(defmethod handle-goal :relation
+(declare make-internal)
+
+(defn collector-maker-call
+  [goal {:keys [open-binding-list] :as state}]
+  (let [rel (collector goal)]
+    `(for [~@(->> open-binding-list
+                  (map (juxt local-dep-symbol
+                             (fn obm [a-goal]
+                               (or (iteration-dep a-goal)
+                                   (throw (IllegalStateException.
+                                           (str "missing 'for' of "
+                                                a-goal)))))))
+                  (reduce into))]
+       ~(make-internal state rel false))))
+
+(defmethod handle-goal :collector
   [goal old-state]
   (let [stored-keys [:open-binding-list
                      :open-bindings
                      :bindings]
-        relation-state (run-on-deps (-> old-state
+        collector-state (run-on-deps (-> old-state
                                         (merge (-> (create-maker-state nil) ;;overrides tmp
                                                    (select-keys stored-keys)))
                                         (update :env conj #{}))
-                                    [(-> goal relation)])
-        open-bindings-list (:open-binding-list relation-state)
-        relation-maker (relation-maker-call goal relation-state)
-        up-state (-> relation-state
+                                    [(-> goal collector)])
+        open-bindings-list (:open-binding-list collector-state)
+        collector-maker (collector-maker-call goal collector-state)
+        up-state (-> collector-state
                      (update :env pop)
                      (merge (select-keys old-state ;;restore state
                                          stored-keys))
                      (run-on-deps (map iteration-dep open-bindings-list)))]
     (-> (combine-maker-state
-         {:bindings [[(local-dep-symbol goal) relation-maker]]
+         {:bindings [[(local-dep-symbol goal) collector-maker]]
           :reqs #{(goal->namespace goal)}}
          up-state)
         (conj-top-dep-to-current-env goal))))
 
+(defn goal-maker-call
+  "Creates the expression to make a goal by calling its function"
+  [goal]
+  (let [deps (-> goal goal-deps)
+        locals (->> deps (map local-dep-symbol))]
+    `(~(goal-maker-symbol goal) ~@(->> goal
+                                       goal-deps
+                                       (map local-dep-symbol)))))
+
 (defmethod handle-goal :default
   [goal old-state]
-  (let [dependencies-state (run-on-deps old-state (goal-deps goal))]
+  (let [dependencies-state (run-on-deps old-state (goal-deps goal))
+        open-bindings (->> dependencies-state
+                           :open-binding-list
+                           (map (comp (partial vector goal)
+                                      vector))
+                           (into {}))]
     (-> (combine-maker-state;a normal/plain dependency
          {:bindings [[(local-dep-symbol goal) (goal-maker-call goal)]]
-          :reqs #{(goal->namespace goal)}}
+          :reqs #{(goal->namespace goal)}
+          :open-bindings open-bindings}
          dependencies-state)
         (conj-top-dep-to-current-env goal))))
 
@@ -291,12 +305,15 @@
   [form]
   (->> form
        (walk/postwalk
-        (fn [s] (cond
-                  (symbol? s) (-> s
-                                  str
-                                  (string/replace #"^clojure.core/" "")
-                                  symbol)
-                  :default s)))
+        (fn [s]
+          (cond
+            (symbol? s)
+            (-> s
+                str
+                (string/replace #"^clojure.core/" "")
+                symbol)
+
+            :default s)))
        pprint/pprint)
   form)
 

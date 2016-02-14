@@ -63,9 +63,9 @@
   [generator-item item-factor]
   (* generator-item item-factor))
 
-(declare ^{:relation 'rel-item} rel-items*)
+(declare ^{:collect 'rel-item} rel-items*)
 
-(deftest test-relations
+(deftest test-collectors
   (is (= (last (make rel-items))
          18)))
 
@@ -79,7 +79,13 @@
   [item-factor generator-item generator-item2]
   [generator-item generator-item2])
 
-(def ^{:relation 'pair} pairs*)
+(def ^{:collect 'pair} pairs*)
+
+#_(defn pairs*
+  [generator-items generator-items2 item-factor]
+  (for [generator-item generator-items
+        generator-item2 generator-items2]
+    (make pair)))
 
 (deftest test-comb
   (reset! call-counter 0)
