@@ -107,7 +107,7 @@
   [sym]
   (-> sym whole-symbol symbol->meta :goal))
 
-(defn collector
+(defn collected
   [goal]
   (-> goal whole-symbol goal-maker-symbol symbol->meta :collect))
 
@@ -141,7 +141,8 @@
    :env (or env #{})
    :reqs #{}
    :items {}
-   :item-list []})
+   :item-list []
+   :in-advance #{}})
 
 (defn combine-items
   [m1 m2]
@@ -156,10 +157,11 @@
   (reduce (fn _cmsr [acc [key comb-fn]]
             (update acc key comb-fn (key new-state)))
           old-state
-          [[:bindings concat]
-           [:reqs set/union]
+          [[:bindings into]
+           [:reqs into]
            [:items combine-items]
-           [:item-list concat]]))
+           [:item-list into]
+           [:in-advance into]]))
 
 (defn conj-dep-to-current-env
   [state goal]
@@ -169,7 +171,7 @@
   [goal state]
   (cond
     (iteration-dep goal) :iteration
-    (collector goal) :collector
+    (collected goal) :collector
     :else :default))
 
 (defmulti handle-goal handler-selector)
@@ -179,7 +181,8 @@
   (if-let [dep (first deps)]
     (if (->> dep
              local-dep-symbol
-             ((:env state)))
+             (#(or (-> state :env %)
+                   (-> state :in-advance %))))
       (do (prn dep "====" state)
           (recur state (rest deps)))
       (do
@@ -201,7 +204,7 @@
 
 (defn collector-maker-call
   [goal {:keys [item-list] :as state}]
-  (let [rel (collector goal)]
+  (let [collected (collected goal)]
     `(for [~@(->> item-list
                   (map (juxt local-dep-symbol
                              (fn obm [a-goal]
@@ -210,7 +213,16 @@
                                            (str "missing 'for' of "
                                                 a-goal)))))))
                   (reduce into))]
-       ~(make-internal state rel false))))
+       ~(make-internal state collected false))))
+
+(defn goal-maker-call
+  "Creates the expression to make a goal by calling its function"
+  [goal]
+  (let [deps (-> goal goal-deps)
+        locals (->> deps (map local-dep-symbol))]
+    `(~(goal-maker-symbol goal) ~@(->> goal
+                                       goal-deps
+                                       (map local-dep-symbol)))))
 
 (defmethod handle-goal :collector
   [goal {:keys [env] :as old-state}]
@@ -220,7 +232,7 @@
         collector-state (run-on-deps (-> old-state
                                         (merge (-> (create-maker-state nil) ;;overrides tmp
                                                    (select-keys stored-keys))))
-                                    [(-> goal collector)])
+                                    [(-> goal collected)])
         item-list (:item-list collector-state)
         collector-maker (collector-maker-call goal collector-state)
         up-state (-> collector-state
@@ -234,18 +246,9 @@
          up-state)
         (conj-dep-to-current-env goal))))
 
-(defn goal-maker-call
-  "Creates the expression to make a goal by calling its function"
-  [goal]
-  (let [deps (-> goal goal-deps)
-        locals (->> deps (map local-dep-symbol))]
-    `(~(goal-maker-symbol goal) ~@(->> goal
-                                       goal-deps
-                                       (map local-dep-symbol)))))
-
 (defmethod handle-goal :default
-  [goal old-state]
-  (let [dependencies-state (run-on-deps old-state (goal-deps goal))
+  [goal in-state]
+  (let [dependencies-state (run-on-deps in-state (goal-deps goal))
         items (->> dependencies-state
                            :item-list
                            (map (comp (partial vector goal)
