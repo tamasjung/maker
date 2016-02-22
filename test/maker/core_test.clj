@@ -19,7 +19,7 @@
 (defn six-times* [three-times] (* 2 three-times))
 
 (deftest inserted-test
-  (is (= (make six-times)
+  (is (= (prn-make six-times)
          30))
   (is (= (let [d 10]
            (make six-times))
@@ -48,44 +48,38 @@
 
 (def call-counter (atom 0))
 
-(defn item-factor*
+(defn factor*
   []
   (swap! call-counter inc)
   2)
 
-(defn generator-items*
-  [item-factor]
+(defn iterator-items*
+  [factor]
   (range 10))
 
-(declare ^{:for 'generator-items} generator-item*)
+(declare ^{:for 'iterator-items} iterator-item*)
 
-(defn rel-item*
-  [generator-item item-factor]
-  (* generator-item item-factor))
+(defn collected-item*
+  [iterator-item factor]
+  (* iterator-item factor))
 
-(declare ^{:collect 'rel-item} rel-items*)
+(declare ^{:collect 'collected-item} collected-items*)
 
 (deftest test-collectors
-  (is (= (last (make rel-items))
+  (is (= (last (prn-make collected-items))
          18)))
 
-(defn generator-items2*
-  [item-factor]
+(defn iterator-items2*
+  [factor]
   ["a" "b"])
 
-(declare ^{:for 'generator-items2} generator-item2*)
+(declare ^{:for 'iterator-items2} iterator-item2*)
 
 (defn pair*
-  [item-factor generator-item generator-item2]
-  [generator-item generator-item2])
+  [factor iterator-item iterator-item2]
+  [iterator-item iterator-item2])
 
 (def ^{:collect 'pair} pairs*)
-
-#_(defn pairs*
-  [generator-items generator-items2 item-factor]
-  (for [generator-item generator-items
-        generator-item2 generator-items2]
-    (make pair)))
 
 (deftest test-comb
   (reset! call-counter 0)

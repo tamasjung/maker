@@ -4,6 +4,22 @@
             [clojure.pprint :as pprint]
             [clojure.walk :as walk]))
 
+(defn print-generated-code
+  [form]
+  (->> form
+       (walk/postwalk
+        (fn [s]
+          (cond
+            (symbol? s)
+            (-> s
+                str
+                (string/replace #"^clojure.core/" "")
+                symbol)
+
+            :default s)))
+       pprint/pprint)
+  form)
+
 (defn inj-munge
   "Injective munge" ;;...it will be.
   [s]
@@ -13,8 +29,6 @@
       (string/replace "/" "!")
       ;(string/replace "_" "+_")
       (string/replace "." "_")))
-
-;;env stack operations
 
 (defn map-longer
   [f c1 c2]
@@ -42,13 +56,6 @@
                       whole))
     :default (throw (IllegalArgumentException.
                      (str "Unrecogonized dependency:" dep ".")))))
-
-(defn dep-declaration-check
-  "Check if the dependency is in correct form"
-  [dep]
-  (assert (whole-symbol dep)
-          (str dep " dependency declaration should be a symbol or "
-               "has an :as keyword in it")))
 
 (defn split-fqn
   "Split fully-quelified name into parts"
@@ -85,8 +92,6 @@
       goal-maker-symbol
       symbol->meta))
 
-#_(def local-dep-symbol dep-param-symbol)
-
 (defn local-dep-symbol
   "Returns the local bind symbol for a dependency"
   [dep]
@@ -101,11 +106,6 @@
        goal-meta
        ((juxt :deps (comp first :arglists)))
        (some identity)))
-
-(defn is-goal?
-  "Check the meta for the :goal flag"
-  [sym]
-  (-> sym whole-symbol symbol->meta :goal))
 
 (defn collected
   [goal]
@@ -137,35 +137,37 @@
 
 (defn create-maker-state
   [env]
-  {:bindings []
+  {:bindings {}
    :env (or env #{})
-   :reqs #{}
-   :items {}
-   :item-list []
-   :in-advance #{}})
+   :walk-list []
+   :rev-deps {}
+   :item-list []})
 
 (defn combine-items
   [m1 m2]
   (reduce-kv
    (fn [acc k v]
-     (update acc k (fnil into []) v))
+     (update acc k (comp distinct (fnil into [])) v))
    m1
    m2))
 
 (defn combine-maker-state
   [new-state old-state]
-  (reduce (fn _cmsr [acc [key comb-fn]]
-            (update acc key comb-fn (key new-state)))
+  (reduce (fn _cmsr [acc [key comb-fn default]]
+            (update acc key (fnil comb-fn default) (key new-state)))
           old-state
-          [[:bindings into]
-           [:reqs into]
-           [:items combine-items]
-           [:item-list into]
-           [:in-advance into]]))
+          [[:bindings merge {}]
+           [:rev-deps combine-items {}]
+           [:env into #{}]
+           [:walk-list (comp distinct concat) []]
+           [:item-list (comp distinct concat) []]]))
 
-(defn conj-dep-to-current-env
-  [state goal]
-  (update state :env conj goal))
+(defn reverse-dependencies
+  [dep]
+  (->> dep
+       goal-deps
+       (map #(vector % [dep]))
+       (into {})))
 
 (defn handler-selector
   [goal state]
@@ -181,24 +183,23 @@
   (if-let [dep (first deps)]
     (if (->> dep
              local-dep-symbol
-             (#(or (-> state :env %)
-                   (-> state :in-advance %))))
-      (do (prn dep "====" state)
+             (#(-> state :env %)))
+      (do (prn dep "===" state)
           (recur state (rest deps)))
       (do
-        (prn dep "===>" state)
+        (prn dep "==>" state)
         (recur (handle-goal dep state)
                (rest deps))))
-    state))
+    (do (prn "==|" state)
+        state)))
 
 (defmethod handle-goal :iteration
   [goal old-state]
   (-> (combine-maker-state
-       {:items {goal []}
-        :item-list [goal]
-        :reqs #{(goal->namespace goal)}}
-       old-state)
-      (conj-dep-to-current-env goal)))
+       {:item-list [goal]
+        :walk-list [goal]
+        :env #{goal}}
+       old-state)))
 
 (declare make-internal)
 
@@ -207,59 +208,66 @@
   (let [collected (collected goal)]
     `(for [~@(->> item-list
                   (map (juxt local-dep-symbol
-                             (fn obm [a-goal]
-                               (or (iteration-dep a-goal)
-                                   (throw (IllegalStateException.
-                                           (str "missing 'for' of "
-                                                a-goal)))))))
-                  (reduce into))]
+                             iteration-dep))
+                  (reduce into []))]
        ~(make-internal state collected false))))
 
 (defn goal-maker-call
   "Creates the expression to make a goal by calling its function"
   [goal]
-  (let [deps (-> goal goal-deps)
-        locals (->> deps (map local-dep-symbol))]
-    `(~(goal-maker-symbol goal) ~@(->> goal
-                                       goal-deps
-                                       (map local-dep-symbol)))))
+  `(~(goal-maker-symbol goal) ~@(->> goal
+                                     goal-deps
+                                     (map local-dep-symbol))))
+
+(defn dependants
+  [{:keys [rev-deps item-list]}]
+  (letfn [(add-dependants [result dep]
+            (->> dep
+                 rev-deps
+                 (map (partial add-dependants result))
+                 (reduce into #{dep})))]
+    (reduce add-dependants #{} item-list)))
 
 (defmethod handle-goal :collector
-  [goal {:keys [env] :as old-state}]
-  (let [stored-keys [:item-list
-                     :items
-                     :bindings]
-        collector-state (run-on-deps (-> old-state
-                                        (merge (-> (create-maker-state nil) ;;overrides tmp
-                                                   (select-keys stored-keys))))
-                                    [(-> goal collected)])
-        item-list (:item-list collector-state)
-        collector-maker (collector-maker-call goal collector-state)
-        up-state (-> collector-state
+  [goal {:keys [env] :as in-state}]
+  (let [stored-keys [:item-list :walk-list]
+        collected-state (run-on-deps
+                         (-> in-state
+                             (merge (select-keys stored-keys
+                                                 (create-maker-state nil))))
+                         [(-> goal collected)])
+        new-item-list (:item-list collected-state)
+        local-dependants (dependants collected-state)
+        collector-maker (collector-maker-call
+                         goal
+                         (update collected-state
+                                 :walk-list #(filter local-dependants %)))
+        up-state (-> collected-state
                      (assoc :env env)
-                     (merge (select-keys old-state ;;restore state
+                     (merge (select-keys in-state ;;restore state
                                          stored-keys))
-                     (run-on-deps (map iteration-dep item-list)))]
-    (-> (combine-maker-state
-         {:bindings [[(local-dep-symbol goal) collector-maker]]
-          :reqs #{(goal->namespace goal)}}
-         up-state)
-        (conj-dep-to-current-env goal))))
+                     (run-on-deps (map iteration-dep new-item-list))
+                     (update :walk-list concat
+                             (remove local-dependants (:walk-list collected-state)))
+                     (update :env into (set/difference (:env collected-state)
+                                                       local-dependants)))]
+    (combine-maker-state
+     up-state
+     {:bindings {goal [(local-dep-symbol goal) collector-maker]}
+      :walk-list [goal]
+      :env #{goal}})))
 
 (defmethod handle-goal :default
-  [goal in-state]
-  (let [dependencies-state (run-on-deps in-state (goal-deps goal))
-        items (->> dependencies-state
-                           :item-list
-                           (map (comp (partial vector goal)
-                                      vector))
-                           (into {}))]
-    (-> (combine-maker-state;a normal/plain dependency
-         {:bindings [[(local-dep-symbol goal) (goal-maker-call goal)]]
-          :reqs #{(goal->namespace goal)}
-          :items items}
+  [goal {:keys [item-list] :as in-state}]
+  (let [dependencies-state (run-on-deps in-state (goal-deps goal))]
+    (-> in-state
+        (combine-maker-state
          dependencies-state)
-        (conj-dep-to-current-env goal))))
+        (combine-maker-state
+         {:bindings {goal [(local-dep-symbol goal) (goal-maker-call goal)]}
+          :rev-deps (reverse-dependencies goal)
+          :walk-list [goal]
+          :env #{goal}}))))
 
 (defn load-depencies
   "Call 'require' on every given namespace if necessary"
@@ -271,32 +279,13 @@
         (require r)))))
 
 (defn make-internal
-  [state goal fail-on-opens]
-  (let [{:keys [bindings requires items]} state]
-    (when (and fail-on-opens
-               (seq items))
-      (throw (IllegalArgumentException.
-              (str "Open binding remained: " (string/join ", " items)))))
-    (load-depencies requires)
-    `(let [~@(->> bindings
-                  (apply concat))]
-       ~(local-dep-symbol goal))))
-
-(defn print-generated-code
-  [form]
-  (->> form
-       (walk/postwalk
-        (fn [s]
-          (cond
-            (symbol? s)
-            (-> s
-                str
-                (string/replace #"^clojure.core/" "")
-                symbol)
-
-            :default s)))
-       pprint/pprint)
-  form)
+  [{:keys [walk-list bindings] :as state} goal fail-on-opens]
+  (prn state)
+  `(let [~@(->> walk-list
+                reverse
+                (map bindings)
+                (reduce into []))]
+     ~(local-dep-symbol goal)))
 
 (defmacro make-with
   "Make a goal out of the environment"
