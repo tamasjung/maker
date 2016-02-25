@@ -139,6 +139,7 @@
   [env]
   {:bindings {}
    :env (or env #{})
+   :no-circular-dep #{}
    :walk-list []
    :rev-deps {}
    :item-list []})
@@ -159,6 +160,7 @@
           [[:bindings merge {}]
            [:rev-deps combine-items {}]
            [:env into #{}]
+           [:no-circular-dep into #{}]
            [:walk-list (comp distinct concat) []]
            [:item-list (comp distinct concat) []]]))
 
@@ -180,16 +182,23 @@
 
 (defn run-on-deps
   [state deps]
-  (if-let [dep (first deps)]
-    (if (->> dep
-             local-dep-symbol
-             (#(-> state :env %)))
+  (if-let [dep (some-> deps first local-dep-symbol)];;TODO check throughtout the ns for destructuring forms remain
+    (if (-> state :env dep)
       (do (prn dep "===" state)
           (recur state (rest deps)))
-      (do
-        (prn dep "==>" state)
-        (recur (handle-goal dep state)
-               (rest deps))))
+      (if (-> state :no-circular-dep (get dep))
+        (throw (IllegalStateException.
+                (str "Circural dependency:"
+                     dep
+                     ", walk-path:"
+                     (:walk-list state))))
+        (do
+          (prn dep "==>" state)
+          (update (run-on-deps (handle-goal
+                                dep
+                                (update state :no-circular-dep conj dep))
+                               (rest deps))
+                  :no-circular-dep disj dep))))
     (do (prn "==|" state)
         state)))
 

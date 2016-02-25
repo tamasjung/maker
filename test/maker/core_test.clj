@@ -110,3 +110,9 @@
                dv [11 22]]
            (prn-make d-destr-goal))
          (list 1 2 {:a 1 :b 2} 11 [11 22]))))
+
+(defn self* [self]
+  self)
+
+(deftest circular-dep
+  (is (thrown? Throwable (eval '(prn-make self)))))
