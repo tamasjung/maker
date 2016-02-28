@@ -298,9 +298,7 @@
 (defmethod handle-goal :default
   [goal {:keys [item-list] :as in-state}]
   (let [dependencies-state (run-on-deps in-state (goal-deps goal))]
-    (-> in-state
-        (combine-maker-state
-         dependencies-state)
+    (-> dependencies-state
         (combine-maker-state
          {:bindings {goal [(local-dep-symbol goal) (goal-maker-call goal)]}
           :rev-deps (reverse-dependencies goal)
