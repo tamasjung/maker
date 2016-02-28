@@ -137,16 +137,6 @@
 
 (declare ^{:selector 'my-selector :cases ['multi-a 'multi-b]} multigoal*)
 
-(let [d {:type :a}
-      my-selector (my-selector* d)
-      res (case my-selector
-            multi-a (let [multi-a (multi-a*)]
-                       multi-a)
-            multi-b (let [bb (bb*)
-                           multi-b (multi-b* bb)]
-                       multi-b))]
-  (prn "res:" res))
-
 (deftest test-multi-deps
   (let [d {:type :a}]
     (is (= 'a (prn-make multigoal))))
