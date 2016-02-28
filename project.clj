@@ -1,4 +1,4 @@
-(defproject maker "0.1.0"
+(defproject maker "0.1.2-SNAPSHOT"
   :description "Maker is a macro for resolving dependencies between plain functions."
   :url "https://github.com/tamasjung/maker"
   :license {:name "MIT License"
