@@ -135,10 +135,39 @@
     :a 'multi-a
     :b 'multi-b))
 
-(declare ^{:selector 'my-selector :cases ['multi-a 'multi-b]} multigoal*)
+(declare ^{:selector 'my-selector
+           :cases ['multi-a 'multi-b]}
+         multigoal*)
 
 (deftest test-multi-deps
   (let [d {:type :a}]
     (is (= 'a (prn-make multigoal))))
   (let [d {:type :b}]
     (is (= 'b (make multigoal)))))
+
+(defn m-its*
+  []
+  [{:type 'm-a} {:type 'm-b}])
+
+(declare ^{:for 'm-its} m-it*)
+
+(defn m-sel*
+  [m-it]
+  (:type m-it))
+
+(declare ^{:selector 'm-sel :cases ['m-a 'm-b]} m*)
+
+(defn m-a*
+  [m-it]
+  (assoc m-it :m :a))
+
+(defn m-b*
+  [m-it]
+  (assoc m-it :m :b))
+
+(declare ^{:collect 'm} ms*)
+
+(deftest test-iterative-multi
+  (is (= (->> (make ms)
+              (map :m))
+         [:a :b])))

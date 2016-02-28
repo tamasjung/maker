@@ -104,7 +104,7 @@
   [goal]
   (->> goal
        goal-meta
-       ((juxt :deps (comp first :arglists)))
+       ((juxt :deps (comp first :arglists))) ;; TBD the old :deps remains?
        (some identity)))
 
 (defn collected-dep
@@ -236,11 +236,11 @@
                                      (map local-dep-symbol))))
 
 (defn multi-maker-call
-  [goal state]
+  [goal state cases-states]
   (let [{:keys [selector cases] :as multi-meta} (multi-dep goal)]
     `(case ~selector
        ~@(mapcat
-          #(vector % (make-internal (run-on-deps state [%]) % false))
+          #(vector % (make-internal (get cases-states %) % false))
           cases))))
 
 (defn dependants
@@ -284,14 +284,26 @@
 (defmethod handle-goal :multi
   [goal {:keys [] :as in-state}]
   (let [{:keys [selector cases] :as multi-meta} (multi-dep goal)
-        selector-state (run-on-deps in-state [selector])]
+        selector-state (run-on-deps in-state [selector])
+        cases-states (->> cases
+                          (map #(vector % (run-on-deps selector-state [%])))
+                          (into {}))
+        item-list (->> cases-states
+                       vals
+                       (mapcat :item-list)
+                       distinct)]
+
     (-> selector-state
         (combine-maker-state
          {:bindings {goal [(local-dep-symbol goal)
                            (multi-maker-call goal
                                              (assoc selector-state
-                                                    :bindings {}))]}
-          :rev-deps (reverse-dependencies goal)
+                                                    :bindings {})
+                                             cases-states)]}
+          :rev-deps (->> item-list
+                         (map #(vector % [goal]))
+                         (into {}))
+          :item-list item-list
           :walk-list [goal]
           :env #{goal}}))))
 
@@ -325,8 +337,7 @@
 (defmacro make-with
   "Make a goal out of the environment"
   [goal env]
-  (-> goal
-      (handle-goal (-> env keys set create-maker-state))
+  (-> (run-on-deps (-> &env keys set create-maker-state) [goal])
       (make-internal goal true)))
 
 (defmacro make
@@ -335,8 +346,7 @@
 
 (defmacro prn-make-with ;; TODO can we do it somehow without duplication?
   [goal env]
-  (-> goal
-      (handle-goal (-> &env keys set create-maker-state))
+  (-> (run-on-deps (-> &env keys set create-maker-state) [goal])
       (make-internal goal true)
       print-generated-code))
 
