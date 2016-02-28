@@ -107,13 +107,20 @@
        ((juxt :deps (comp first :arglists)))
        (some identity)))
 
-(defn collected
+(defn collected-dep
   [goal]
   (-> goal whole-symbol goal-maker-symbol symbol->meta :collect))
 
 (defn iteration-dep
   [goal]
   (-> goal whole-symbol goal-maker-symbol symbol->meta :for))
+
+(defn multi-dep
+  [goal]
+  (let [{:keys [selector cases] :as goal-meta}
+        (-> goal whole-symbol goal-maker-symbol symbol->meta)]
+    (when (and selector cases)
+      goal-meta)))
 
 (defn goal->namespace
   "Returns the namespace of the goal symbol"
@@ -175,7 +182,8 @@
   [goal state]
   (cond
     (iteration-dep goal) :iteration
-    (collected goal) :collector
+    (collected-dep goal) :collector
+    (multi-dep goal) :multi
     :else :default))
 
 (defmulti handle-goal handler-selector)
@@ -214,7 +222,7 @@
 
 (defn collector-maker-call
   [goal {:keys [item-list] :as state}]
-  (let [collected (collected goal)]
+  (let [collected (collected-dep goal)]
     `(for [~@(->> item-list
                   (map (juxt local-dep-symbol
                              iteration-dep))
@@ -222,11 +230,18 @@
        ~(make-internal state collected false))))
 
 (defn goal-maker-call
-  "Creates the expression to make a goal by calling its function"
   [goal]
   `(~(goal-maker-symbol goal) ~@(->> goal
                                      goal-deps
                                      (map local-dep-symbol))))
+
+(defn multi-maker-call
+  [goal state]
+  (let [{:keys [selector cases] :as multi-meta} (multi-dep goal)]
+    `(case ~selector
+       ~@(mapcat
+          #(vector % (make-internal (run-on-deps state [%]) % false))
+          cases))))
 
 (defn dependants
   [{:keys [rev-deps item-list]}]
@@ -244,7 +259,7 @@
                          (-> in-state
                              (merge (select-keys stored-keys
                                                  (create-maker-state nil))))
-                         [(-> goal collected)])
+                         [(-> goal collected-dep)])
         new-item-list (:item-list collected-state)
         local-dependants (dependants collected-state)
         collector-maker (collector-maker-call
@@ -265,6 +280,20 @@
      {:bindings {goal [(local-dep-symbol goal) collector-maker]}
       :walk-list [goal]
       :env #{goal}})))
+
+(defmethod handle-goal :multi
+  [goal {:keys [] :as in-state}]
+  (let [{:keys [selector cases] :as multi-meta} (multi-dep goal)
+        selector-state (run-on-deps in-state [selector])]
+    (-> selector-state
+        (combine-maker-state
+         {:bindings {goal [(local-dep-symbol goal)
+                           (multi-maker-call goal
+                                             (assoc selector-state
+                                                    :bindings {}))]}
+          :rev-deps (reverse-dependencies goal)
+          :walk-list [goal]
+          :env #{goal}}))))
 
 (defmethod handle-goal :default
   [goal {:keys [item-list] :as in-state}]
@@ -289,7 +318,6 @@
 
 (defn make-internal
   [{:keys [walk-list bindings] :as state} goal fail-on-opens]
-  (prn state)
   `(let [~@(->> walk-list
                 reverse
                 (map bindings)

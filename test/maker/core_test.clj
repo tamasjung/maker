@@ -116,3 +116,39 @@
 
 (deftest circular-dep
   (is (thrown? Throwable (eval '(prn-make self)))))
+
+(defn multi-a*
+  []
+  'a)
+
+(defn bb*
+  []
+  'bb)
+
+(defn multi-b*
+  [bb]
+  'b)
+
+(defn my-selector*
+  [d]
+  (case (:type d)
+    :a 'multi-a
+    :b 'multi-b))
+
+(declare ^{:selector 'my-selector :cases ['multi-a 'multi-b]} multigoal*)
+
+(let [d {:type :a}
+      my-selector (my-selector* d)
+      res (case my-selector
+            multi-a (let [multi-a (multi-a*)]
+                       multi-a)
+            multi-b (let [bb (bb*)
+                           multi-b (multi-b* bb)]
+                       multi-b))]
+  (prn "res:" res))
+
+(deftest test-multi-deps
+  (let [d {:type :a}]
+    (is (= 'a (prn-make multigoal))))
+  (let [d {:type :b}]
+    (is (= 'b (make multigoal)))))
