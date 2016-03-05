@@ -2,7 +2,13 @@
   (:require [clojure.test :refer :all]
             [maker.core :as m :refer :all]
             [clojure.pprint :refer :all]
+            [clojure.string :as string]
             [ns2 :as ns-two]))
+
+(defmacro g
+  [name params]
+  `(defn ~name [~@params]
+     (list ~@params)))
 
 (deftest munge-test
   (are [s] (-> s inj-munge inj-munge-inv (= s))
@@ -18,8 +24,12 @@
 (defn three-times* [d] (* 3 d))
 (defn six-times* [three-times] (* 2 three-times))
 
+(defn make-caller
+  [d]
+  (let [__make-log-fn pprint] (make six-times)))
+
 (deftest inserted-test
-  (is (= (prn-make six-times)
+  (is (= (make six-times)
          30))
   (is (= (let [d 10]
            (make six-times))
@@ -27,7 +37,9 @@
   (is (= (let [d 10
                d 20]
            (make six-times))
-         120)))
+         120))
+  (is (= (make-caller 10)
+         60)))
 
 #_(deftest test-different-ns
     (is (= 55 (make ns-two/b)))
@@ -60,14 +72,19 @@
 (declare ^{:for 'iterator-items} iterator-item*)
 
 (defn collected-item*
-  [iterator-item factor]
+  [factor {:keys [] :as iterator-item}]
   (* iterator-item factor))
 
 (declare ^{:collect 'collected-item} collected-items*)
 
+(defn collected-items-var*
+  [collected-items]
+  collected-items)
+
 (deftest test-collectors
-  (is (= (last (prn-make collected-items))
-         18)))
+  (let [factor 2]
+    (is (= (last (make collected-items-var))
+           18))))
 
 (defn iterator-items2*
   [factor]
@@ -83,7 +100,7 @@
 
 (deftest test-comb
   (reset! call-counter 0)
-  (is (= (count (prn-make pairs))
+  (is (= (count (make pairs))
          20))
   (is (= @call-counter 1)))
 
@@ -108,14 +125,14 @@
 (deftest test-d-destr
   (is (= (let [dm {:a 1 :b 2}
                dv [11 22]]
-           (prn-make d-destr-goal))
+           (make d-destr-goal))
          (list 1 2 {:a 1 :b 2} 11 [11 22]))))
 
 (defn self* [self]
   self)
 
 (deftest circular-dep
-  (is (thrown? Throwable (eval '(prn-make self)))))
+  (is (thrown? Throwable (eval '(make self)))))
 
 (defn multi-a*
   []
@@ -141,7 +158,7 @@
 
 (deftest test-multi-deps
   (let [d {:type :a}]
-    (is (= 'a (prn-make multigoal))))
+    (is (= 'a (make multigoal))))
   (let [d {:type :b}]
     (is (= 'b (make multigoal)))))
 
@@ -171,3 +188,39 @@
   (is (= (->> (make ms)
               (map :m))
          [:a :b])))
+
+(defn model-1s*
+  []
+  [[1 2] [3 4]])
+
+(def ^{:for 'model-1s} model-1*)
+
+(defn model-2s*
+  [model-1]
+  model-1)
+
+(def ^{:for 'model-2s} model-2*)
+
+(defn view-2*
+  [model-2]
+  (str model-2))
+
+(def ^{:collect 'view-2} view-2s*)
+
+(defn view-1*
+  [view-2s]
+  (string/join "-" view-2s))
+
+(def ^{:collect 'view-1} view-1s*)
+
+;(defcoll view-1s* view-1)
+;(defit model-2* model-2s)
+;
+;(defrelations
+
+;  (collect view-1s from view-1))
+
+(deftest two-level
+  (prn-make view-1s))
+
+

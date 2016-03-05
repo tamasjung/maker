@@ -175,6 +175,7 @@
   [dep]
   (->> dep
        goal-deps
+       (map whole-symbol)
        (map #(vector % [dep]))
        (into {})))
 
@@ -189,10 +190,12 @@
 (defmulti handle-goal handler-selector)
 
 (defn run-on-deps
-  [state deps]
+  [{:keys [log-fn]
+    :or {log-fn (constantly nil)}
+    :as state} deps]
   (if-let [dep (some-> deps first local-dep-symbol)];;TODO check throughtout the ns for destructuring forms remain
     (if (-> state :env dep)
-      (do (prn dep "===" state)
+      (do (log-fn dep "===" state)
           (recur state (rest deps)))
       (if (-> state :no-circular-dep (get dep))
         (throw (IllegalStateException.
@@ -201,13 +204,18 @@
                      ", walk-path:"
                      (:walk-list state))))
         (do
-          (prn dep "==>" state)
-          (update (run-on-deps (handle-goal
-                                dep
-                                (update state :no-circular-dep conj dep))
-                               (rest deps))
-                  :no-circular-dep disj dep))))
-    (do (prn "==|" state)
+          (log-fn dep "==>" state)
+          (let [res
+                (update
+                  (run-on-deps
+                    (handle-goal
+                      dep
+                      (update state :no-circular-dep conj dep))
+                    (rest deps))
+                  :no-circular-dep disj dep)]
+            (log-fn dep "<==" res)
+            res))))
+    (do (log-fn "==|" state)
         state)))
 
 (defmethod handle-goal :iteration
@@ -266,11 +274,12 @@
                          goal
                          (update collected-state
                                  :walk-list #(filter local-dependants %)))
+        deps (map iteration-dep new-item-list)
         up-state (-> collected-state
                      (assoc :env env)
                      (merge (select-keys in-state ;;restore state
                                          stored-keys))
-                     (run-on-deps (map iteration-dep new-item-list))
+                     (run-on-deps deps)
                      (update :walk-list concat
                              (remove local-dependants (:walk-list collected-state)))
                      (update :env into (set/difference (:env collected-state)
@@ -279,6 +288,9 @@
      up-state
      {:bindings {goal [(local-dep-symbol goal) collector-maker]}
       :walk-list [goal]
+      :rev-deps (->> deps
+                     (map #(vector % [goal]))
+                     (into {}))
       :env #{goal}})))
 
 (defmethod handle-goal :multi
@@ -344,9 +356,19 @@
   [goal]
   `(make-with ~goal ~&env))
 
+(defn log-fn
+  [& args]
+  (pprint/pprint (->> args
+                      (map #(if (map? %)
+                             (dissoc % :log-fn :bindings)
+                             %))
+                      vec)))
+
 (defmacro prn-make-with ;; TODO can we do it somehow without duplication?
   [goal env]
-  (-> (run-on-deps (-> &env keys set create-maker-state) [goal])
+  (-> (run-on-deps (-> &env keys set create-maker-state
+                       (assoc :log-fn log-fn))
+                   [goal])
       (make-internal goal true)
       print-generated-code))
 
