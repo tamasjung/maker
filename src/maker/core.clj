@@ -8,20 +8,20 @@
   [form]
   (->> form
        (walk/postwalk
-        (fn [s]
-          (cond
-            (symbol? s)
-            (-> s
-                str
-                (string/replace #"^clojure.core/" "")
-                symbol)
+         (fn [s]
+           (cond
+             (symbol? s)
+             (-> s
+                 str
+                 (string/replace #"^clojure.core/" "")
+                 symbol)
 
-            :default s)))
+             :default s)))
        pprint/pprint)
   form)
 
 (defn inj-munge
-  "Injective munge" ;;...it will be.
+  "Injective munge"                                         ;;...it will be.
   [s]
   (-> s
       ;(string/replace "+" "++")
@@ -30,19 +30,11 @@
       ;(string/replace "_" "+_")
       (string/replace "." "_")))
 
-(defn map-longer
-  [f c1 c2]
-  (lazy-seq
-   (let [s1 (seq c1) s2 (seq c2)]
-     (when (or s1 s2)
-       (cons (f (first s1) (first s2))
-             (map-longer f (rest s1) (rest s2)))))))
-
 (defn inj-munge-inv
   [s]
   (-> s
       (string/replace #"(?<!\+)_" ".")
-      (string/replace #"(?<!\+)!" "/" )))
+      (string/replace #"(?<!\+)!" "/")))
 
 (defn whole-symbol
   "Returns the ':as' symbol or itself"
@@ -55,7 +47,7 @@
                                (symbol? whole))
                       whole))
     :default (throw (IllegalArgumentException.
-                     (str "Unrecogonized dependency:" dep ".")))))
+                      (str "Unrecogonized dependency:" dep ".")))))
 
 (defn split-fqn
   "Split fully-quelified name into parts"
@@ -96,7 +88,7 @@
   "Returns the local bind symbol for a dependency"
   [dep]
   (-> dep whole-symbol goal-maker-symbol
-      alias->fqn split-fqn second butlast ;; cut the *
+      alias->fqn split-fqn second butlast                   ;; cut the *
       (->> (apply str)) symbol))
 
 (defn goal-deps
@@ -104,7 +96,7 @@
   [goal]
   (->> goal
        goal-meta
-       ((juxt :deps (comp first :arglists))) ;; TBD the old :deps remains?
+       ((juxt :deps (comp first :arglists)))                ;; TBD the old :deps remains?
        (some identity)))
 
 (defn collected-dep
@@ -405,7 +397,7 @@
   "Declare a goal"
   [the-name]
   `(defgoal ~the-name
-     []
-     (throw (ex-info ~(str "Goal definition is missing "
-                           *ns* "/" the-name)
-                     {:type ::goal-runtime}))))
+            []
+            (throw (ex-info ~(str "Goal definition is missing "
+                                  *ns* "/" the-name)
+                            {:type ::goal-runtime}))))
