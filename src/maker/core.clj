@@ -146,22 +146,25 @@
 (defn combine-items
   [m1 m2]
   (reduce-kv
-   (fn [acc k v]
-     (update acc k (comp distinct (fnil into [])) v))
-   m1
-   m2))
+    (fn [acc k v]
+      (update acc k (comp distinct (fnil into [])) v))
+    m1
+    m2))
 
 (defn combine-maker-state
   [new-state old-state]
-  (reduce (fn _cmsr [acc [key comb-fn default]]
-            (update acc key (fnil comb-fn default) (key new-state)))
+  (reduce (fn _cmsr [acc [k comb-fn default]]
+            (if-let [new-val (k new-state)]
+              (update acc k (fnil comb-fn default) new-val)
+              acc))
           old-state
           [[:bindings merge {}]
            [:rev-deps combine-items {}]
            [:env into #{}]
            [:no-circular-dep into #{}]
            [:walk-list (comp distinct concat) []]
-           [:item-list (comp distinct concat) []]]))
+           [:item-list (comp distinct concat) []]
+           [:log-fn #(or %1 %2) nil]]))
 
 (defn reverse-dependencies
   [dep]
@@ -172,7 +175,7 @@
        (into {})))
 
 (defn handler-selector
-  [goal state]
+  [goal _]
   (cond
     (iteration-dep goal) :iteration
     (collected-dep goal) :collector
@@ -185,16 +188,15 @@
   [{:keys [log-fn]
     :or {log-fn (constantly nil)}
     :as state} deps]
-  (if-let [dep (some-> deps first local-dep-symbol)];;TODO check throughtout the ns for destructuring forms remain
+  (if-let [dep (some-> deps first local-dep-symbol)]        ;;TODO check throughtout the ns for destructuring forms remain
     (if (-> state :env dep)
-      (do (log-fn dep "===" state)
-          (recur state (rest deps)))
+      (recur state (rest deps))
       (if (-> state :no-circular-dep (get dep))
         (throw (IllegalStateException.
-                (str "Circural dependency:"
-                     dep
-                     ", walk-path:"
-                     (:walk-list state))))
+                 (str "Circural dependency:"
+                      dep
+                      ", walk-path:"
+                      (:walk-list state))))
         (do
           (log-fn dep "==>" state)
           (let [res
@@ -207,16 +209,15 @@
                   :no-circular-dep disj dep)]
             (log-fn dep "<==" res)
             res))))
-    (do (log-fn "==|" state)
-        state)))
+    state))
 
 (defmethod handle-goal :iteration
   [goal old-state]
   (-> (combine-maker-state
-       {:item-list [goal]
-        :walk-list [goal]
-        :env #{goal}}
-       old-state)))
+        {:item-list [goal]
+         :walk-list [goal]
+         :env #{goal}}
+        old-state)))
 
 (declare make-internal)
 
@@ -236,12 +237,12 @@
                                      (map local-dep-symbol))))
 
 (defn multi-maker-call
-  [goal state cases-states]
+  [goal cases-states]
   (let [{:keys [selector cases] :as multi-meta} (multi-dep goal)]
     `(case ~selector
        ~@(mapcat
-          #(vector % (make-internal (get cases-states %) % false))
-          cases))))
+           #(vector % (make-internal (get cases-states %) % false))
+           cases))))
 
 (defn dependants
   [{:keys [rev-deps item-list]}]
@@ -256,79 +257,100 @@
   [goal {:keys [env] :as in-state}]
   (let [stored-keys [:item-list :walk-list]
         collected-state (run-on-deps
-                         (-> in-state
-                             (merge (select-keys stored-keys
-                                                 (create-maker-state nil))))
-                         [(-> goal collected-dep)])
+                          (-> in-state
+                              (merge (select-keys stored-keys
+                                                  (create-maker-state nil))))
+                          [(-> goal collected-dep)])
         new-item-list (:item-list collected-state)
         local-dependants (dependants collected-state)
         collector-maker (collector-maker-call
-                         goal
-                         (update collected-state
-                                 :walk-list #(filter local-dependants %)))
+                          goal
+                          (update collected-state
+                                  :walk-list #(filter local-dependants %)))
         deps (map iteration-dep new-item-list)
         up-state (-> collected-state
                      (assoc :env env)
-                     (merge (select-keys in-state ;;restore state
+                     (merge (select-keys in-state           ;;restore state
                                          stored-keys))
                      (run-on-deps deps)
                      (update :walk-list concat
-                             (remove local-dependants (:walk-list collected-state)))
+                             (remove local-dependants
+                                     (:walk-list collected-state)))
                      (update :env into (set/difference (:env collected-state)
                                                        local-dependants)))]
     (combine-maker-state
-     up-state
-     {:bindings {goal [(local-dep-symbol goal) collector-maker]}
-      :walk-list [goal]
-      :rev-deps (->> deps
-                     (map #(vector % [goal]))
-                     (into {}))
-      :env #{goal}})))
+      up-state
+      {:bindings {goal [(local-dep-symbol goal) collector-maker]}
+       :walk-list [goal]
+       :rev-deps (->> deps
+                      (map #(vector % [goal]))
+                      (into {}))
+       :env #{goal}})))
 
 (defmethod handle-goal :multi
   [goal {:keys [] :as in-state}]
   (let [{:keys [selector cases] :as multi-meta} (multi-dep goal)
         selector-state (run-on-deps in-state [selector])
         cases-states (->> cases
-                          (map #(vector % (run-on-deps selector-state [%])))
+                          (map #(vector % (run-on-deps
+                                            (assoc selector-state
+                                              :walk-list [])
+                                            [%])))
                           (into {}))
-        item-list (->> cases-states
-                       vals
+
+        cases-states-list (map #(get cases-states %) cases)
+        combined-cases-state
+        (reduce combine-maker-state selector-state cases-states-list)
+
+        common-set (->> cases-states-list
+                        (map (comp set :walk-list))
+                        (reduce set/intersection #{}))
+        common-walk-list (->> combined-cases-state
+                              :walk-list
+                              (filter common-set))
+
+        item-list (->> cases-states-list
                        (mapcat :item-list)
                        distinct)]
 
     (-> selector-state
+        (combine-maker-state combined-cases-state)
+        (assoc :walk-list common-walk-list)
         (combine-maker-state
-         {:bindings {goal [(local-dep-symbol goal)
-                           (multi-maker-call goal
-                                             (assoc selector-state
-                                                    :bindings {})
-                                             cases-states)]}
-          :rev-deps (->> item-list
-                         (map #(vector % [goal]))
-                         (into {}))
-          :item-list item-list
-          :walk-list [goal]
-          :env #{goal}}))))
+          {:bindings {goal [(local-dep-symbol goal)
+                            (multi-maker-call goal
+                                              (map
+                                                #(update %
+                                                         :walk-list
+                                                         (partial
+                                                           filter
+                                                           common-set))
+                                                cases-states-list))]}
+           :rev-deps (->> item-list
+                          (map #(vector % [goal]))
+                          (into {}))
+           :item-list item-list
+           :walk-list [goal]
+           :env #{goal}}))))
 
 (defmethod handle-goal :default
   [goal {:keys [item-list] :as in-state}]
   (let [dependencies-state (run-on-deps in-state (goal-deps goal))]
     (-> dependencies-state
         (combine-maker-state
-         {:bindings {goal [(local-dep-symbol goal) (goal-maker-call goal)]}
-          :rev-deps (reverse-dependencies goal)
-          :walk-list [goal]
-          :env #{goal}}))))
+          {:bindings {goal [(local-dep-symbol goal) (goal-maker-call goal)]}
+           :rev-deps (reverse-dependencies goal)
+           :walk-list [goal]
+           :env #{goal}}))))
 
 (defn load-depencies
   "Call 'require' on every given namespace if necessary"
   [namespaces]
   #_(doseq [r namespaces]
-    (try
-      (ns-name r)                                           ;; TODO any better way to detect an unloaded ns?
-      (catch Throwable _
-        (require r)))))
+      (try
+        (ns-name r)                                         ;; TODO any better way to detect an unloaded ns?
+        (catch Throwable _
+          (require r)))))
 
 (defn make-internal
   [{:keys [walk-list bindings] :as state} goal fail-on-opens]
@@ -348,6 +370,8 @@
   [goal]
   `(make-with ~goal ~&env))
 
+(def #^{:macro true} *- #'make)
+
 (defn log-fn
   [& args]
   (pprint/pprint (->> args
@@ -356,7 +380,7 @@
                              %))
                       vec)))
 
-(defmacro prn-make-with ;; TODO can we do it somehow without duplication?
+(defmacro prn-make-with                                     ;; TODO can we do it somehow without duplication?
   [goal env]
   (-> (run-on-deps (-> &env keys set create-maker-state
                        (assoc :log-fn log-fn))
