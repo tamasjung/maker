@@ -303,33 +303,32 @@
         (reduce combine-maker-state selector-state cases-states-list)
 
         common-set (->> cases-states-list
-                        (map (comp set :walk-list))
-                        (reduce set/intersection #{}))
+                        (mapv (comp set :walk-list))
+                        (reduce set/intersection))
         common-walk-list (->> combined-cases-state
                               :walk-list
                               (filter common-set))
-
-        item-list (->> cases-states-list
-                       (mapcat :item-list)
-                       distinct)]
-
+        ]
     (-> selector-state
-        (combine-maker-state combined-cases-state)
-        (assoc :walk-list common-walk-list)
+        (combine-maker-state (-> combined-cases-state
+                                 (assoc :walk-list common-walk-list)))
         (combine-maker-state
           {:bindings {goal [(local-dep-symbol goal)
                             (multi-maker-call goal
-                                              (map
-                                                #(update %
-                                                         :walk-list
-                                                         (partial
-                                                           filter
-                                                           common-set))
-                                                cases-states-list))]}
-           :rev-deps (->> item-list
+                                              (reduce-kv
+                                                (fn [acc k v]
+                                                  (assoc acc
+                                                    k
+                                                    (update v
+                                                            :walk-list
+                                                            (partial
+                                                              remove
+                                                              common-set))))
+                                                {}
+                                                cases-states))]}
+           :rev-deps (->> (conj cases selector)
                           (map #(vector % [goal]))
                           (into {}))
-           :item-list item-list
            :walk-list [goal]
            :env #{goal}}))))
 
@@ -391,6 +390,8 @@
 (defmacro prn-make
   [goal]
   `(prn-make-with ~goal ~&env))
+
+(def #^{:macro true} pr*- #'prn-make)
 
 (defmacro with
   "Create an environment for making goals by binding fully-qualified symbols

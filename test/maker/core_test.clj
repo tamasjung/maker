@@ -158,9 +158,17 @@
 
 (deftest test-multi-deps
   (let [d {:type :a}]
-    (is (= 'a (make multigoal))))
+    (is (= 'a (*- multigoal))))
   (let [d {:type :b}]
-    (is (= 'b (make multigoal)))))
+    (is (= 'b (*- multigoal)))))
+
+;-------------------------------------------------------------------------------
+
+(defn common-g*
+  [])
+
+(defn common-it-g*
+  [m-it])
 
 (defn m-its*
   []
@@ -175,17 +183,17 @@
 (declare ^{:selector 'm-sel :cases ['m-a 'm-b]} m*)
 
 (defn m-a*
-  [m-it]
+  [m-it common-g common-it-g]
   (assoc m-it :m :a))
 
 (defn m-b*
-  [m-it]
+  [m-it common-g common-it-g]
   (assoc m-it :m :b))
 
 (declare ^{:collect 'm} ms*)
 
 (deftest test-iterative-multi
-  (is (= (->> (make ms)
+  (is (= (->> (*- ms)
               (map :m))
          [:a :b])))
 
@@ -210,17 +218,4 @@
 (defn view-1*
   [view-2s]
   (string/join "-" view-2s))
-
-(def ^{:collect 'view-1} view-1s*)
-
-;(defcoll view-1s* view-1)
-;(defit model-2* model-2s)
-;
-;(defrelations
-
-;  (collect view-1s from view-1))
-
-(deftest two-level
-  (prn-make view-1s))
-
 
