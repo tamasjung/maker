@@ -81,6 +81,7 @@
 (defn goal-meta
   [goal]
   (-> goal
+      whole-symbol
       goal-maker-symbol
       symbol->meta))
 
@@ -101,11 +102,15 @@
 
 (defn collected-dep
   [goal]
-  (-> goal whole-symbol goal-maker-symbol symbol->meta :collect))
+  (-> goal goal-meta :collect))
 
 (defn iteration-dep
   [goal]
-  (-> goal whole-symbol goal-maker-symbol symbol->meta :for))
+  (-> goal goal-meta :for))
+
+(defn item-dep
+  [goal]
+  (-> goal goal-meta :item))
 
 (defn multi-dep
   [goal]
@@ -114,25 +119,25 @@
     (when (and selector cases)
       goal-meta)))
 
-(defn goal->namespace
-  "Returns the namespace of the goal symbol"
-  [goal]
-  (-> goal
-      goal-maker-symbol
-      alias->fqn
-      split-fqn
-      first
-      symbol))
-
-(defn goal->name
-  "Returns the name (without ns) of the goal as symbol"
-  [goal]
-  (-> goal
-      goal-maker-symbol
-      alias->fqn
-      split-fqn
-      second
-      symbol))
+;(defn goal->namespace
+;  "Returns the namespace of the goal symbol"
+;  [goal]
+;  (-> goal
+;      goal-maker-symbol
+;      alias->fqn
+;      split-fqn
+;      first
+;      symbol))
+;
+;(defn goal->name
+;  "Returns the name (without ns) of the goal as symbol"
+;  [goal]
+;  (-> goal
+;      goal-maker-symbol
+;      alias->fqn
+;      split-fqn
+;      second
+;      symbol))
 
 (defn create-maker-state
   [env]
@@ -177,6 +182,8 @@
 (defn handler-selector
   [goal _]
   (cond
+    (and (iteration-dep goal)
+         (collected-dep goal)) :iterator-collector
     (iteration-dep goal) :iteration
     (collected-dep goal) :collector
     (multi-dep goal) :multi
@@ -213,11 +220,10 @@
 
 (defmethod handle-goal :iteration
   [goal old-state]
-  (-> (combine-maker-state
-        {:item-list [goal]
-         :walk-list [goal]
-         :env #{goal}}
-        old-state)))
+  (combine-maker-state
+    {:item-list [goal]
+     :env #{goal}}
+    old-state))
 
 (declare make-internal)
 
@@ -253,6 +259,47 @@
                  (reduce into #{dep})))]
     (reduce add-dependants #{} item-list)))
 
+(defmethod handle-goal :iterator-collector
+  [goal in-state]
+  (let [item-dep (item-dep goal)
+        new-item-list [item-dep]
+        up-state (-> in-state
+                     (run-on-deps [(iteration-dep goal)])
+                     (combine-maker-state
+                       {:item-list new-item-list
+                        :env #{item-dep}}))
+        stored-keys [:item-list :walk-list]
+        collected-state (run-on-deps
+                          (-> up-state
+                              (merge (select-keys stored-keys
+                                                  (create-maker-state nil))))
+                          [(collected-dep goal)])
+        local-dependants (dependants (assoc collected-state
+                                       :item-list new-item-list))
+        collector-maker (collector-maker-call
+                          goal
+                          (update collected-state
+                                  :walk-list #(filter local-dependants %)))
+        deps (map iteration-dep new-item-list)
+        result-state
+        (-> collected-state
+            (assoc :env (:env up-state))
+            (merge (select-keys up-state                    ;;restore state
+                                stored-keys))
+            (update :walk-list concat
+                    (remove local-dependants
+                            (:walk-list collected-state)))
+            (update :env into (set/difference (:env collected-state)
+                                              local-dependants)))]
+    (combine-maker-state
+      result-state
+      {:bindings {goal [(local-dep-symbol goal) collector-maker]}
+       :walk-list [goal]
+       :rev-deps (->> deps
+                      (map #(vector % [goal]))
+                      (into {}))
+       :env #{goal}})))
+
 (defmethod handle-goal :collector
   [goal {:keys [env] :as in-state}]
   (let [stored-keys [:item-list :walk-list]
@@ -260,7 +307,7 @@
                           (-> in-state
                               (merge (select-keys stored-keys
                                                   (create-maker-state nil))))
-                          [(-> goal collected-dep)])
+                          [(collected-dep goal)])
         new-item-list (:item-list collected-state)
         local-dependants (dependants collected-state)
         collector-maker (collector-maker-call
@@ -307,8 +354,7 @@
                         (reduce set/intersection))
         common-walk-list (->> combined-cases-state
                               :walk-list
-                              (filter common-set))
-        ]
+                              (filter common-set))]
     (-> selector-state
         (combine-maker-state (-> combined-cases-state
                                  (assoc :walk-list common-walk-list)))
@@ -394,11 +440,8 @@
 (def #^{:macro true} pr*- #'prn-make)
 
 (defmacro with
-  "Create an environment for making goals by binding fully-qualified symbols
-  virtually."
   [pairs & body]
-  (assert (-> pairs count even?)
-          "With expected even number of forms in the first argument")
+  (assert (-> pairs count even?))
   `(let [~@(->> pairs
                 (partition 2)
                 (map (juxt (comp local-dep-symbol alias->fqn first)

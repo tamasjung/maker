@@ -3,7 +3,7 @@
             [maker.core :as m :refer :all]
             [clojure.pprint :refer :all]
             [clojure.string :as string]
-            [ns2 :as ns-two]))
+            [ns2 :refer [ns2a*]]))
 
 (defmacro g
   [name params]
@@ -42,8 +42,9 @@
          60)))
 
 #_(deftest test-different-ns
-    (is (= 55 (make ns-two/b)))
-    (is (= (let [ns1/a 22]
+  (is (= 111 (*- ns2a)))
+  #_(is (= 55 (make ns-two/b)))
+    #_(is (= (let [ns1/a 22]
              (make ns-two/b))
            110)))
 
@@ -103,6 +104,16 @@
   (is (= (count (make pairs))
          20))
   (is (= @call-counter 1)))
+
+
+(declare ^{:for 'iterator-items
+           :item 'iterator-item
+           :collect 'collected-item} collected-items-static*)
+
+(deftest test-static-collectors
+  (let [factor 2]
+    (is (= (last (make collected-items-static))
+           18))))
 
 (defn m* [] {:a 1 :b 2})
 (defn v* [] [11 22])
@@ -164,6 +175,9 @@
 
 ;-------------------------------------------------------------------------------
 
+(defn not-common*
+  [])
+
 (defn common-g*
   [])
 
@@ -171,7 +185,7 @@
   [m-it])
 
 (defn m-its*
-  []
+  [not-common]
   [{:type 'm-a} {:type 'm-b}])
 
 (declare ^{:for 'm-its} m-it*)
@@ -182,8 +196,12 @@
 
 (declare ^{:selector 'm-sel :cases ['m-a 'm-b]} m*)
 
+#_(defcase m-sel* [m-a m-b])
+
+#_(defcoll ms* :from m-its)
+
 (defn m-a*
-  [m-it common-g common-it-g]
+  [m-it common-g common-it-g not-common]
   (assoc m-it :m :a))
 
 (defn m-b*
