@@ -26,7 +26,8 @@
 
 (defn make-caller
   [d]
-  (let [__make-log-fn pprint] (make six-times)))
+  ;; will print (let [] d)
+  (prn-make d #(pprint %&)))
 
 (deftest inserted-test
   (is (= (make six-times)
@@ -38,8 +39,8 @@
                d 20]
            (make six-times))
          120))
-  (is (= (make-caller 10)
-         60)))
+  (is (= (make-caller 3)
+         3)))
 
 #_(deftest test-different-ns
   (is (= 111 (*- ns2a)))

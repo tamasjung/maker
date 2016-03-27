@@ -4,22 +4,6 @@
             [clojure.pprint :as pprint]
             [clojure.walk :as walk]))
 
-(defn print-generated-code
-  [form]
-  (->> form
-       (walk/postwalk
-         (fn [s]
-           (cond
-             (symbol? s)
-             (-> s
-                 str
-                 (string/replace #"^clojure.core/" "")
-                 symbol)
-
-             :default s)))
-       pprint/pprint)
-  form)
-
 (defn inj-munge
   "Injective munge"                                         ;;...it will be.
   [s]
@@ -192,31 +176,31 @@
 (defmulti handle-goal handler-selector)
 
 (defn run-on-deps
-  [{:keys [log-fn]
-    :or {log-fn (constantly nil)}
-    :as state} deps]
-  (if-let [dep (some-> deps first local-dep-symbol)]        ;;TODO check throughtout the ns for destructuring forms remain
-    (if (-> state :env dep)
-      (recur state (rest deps))
-      (if (-> state :no-circular-dep (get dep))
-        (throw (IllegalStateException.
-                 (str "Circural dependency:"
-                      dep
-                      ", walk-path:"
-                      (:walk-list state))))
-        (do
-          (log-fn dep "==>" state)
-          (let [res
-                (update
-                  (run-on-deps
-                    (handle-goal
-                      dep
-                      (update state :no-circular-dep conj dep))
-                    (rest deps))
-                  :no-circular-dep disj dep)]
-            (log-fn dep "<==" res)
-            res))))
-    state))
+  [state deps]
+  (let [log-fn (or (:log-fn state)
+                   (constantly nil))]
+    (if-let [dep (some-> deps first local-dep-symbol)]      ;;TODO check throughtout the ns for destructuring forms remain
+      (if (-> state :env dep)
+        (recur state (rest deps))
+        (if (-> state :no-circular-dep (get dep))
+          (throw (IllegalStateException.
+                   (str "Circural dependency:"
+                        dep
+                        ", walk-path:"
+                        (:walk-list state))))
+          (do
+            (log-fn dep "==>" state)
+            (let [res
+                  (update
+                    (run-on-deps
+                      (handle-goal
+                        dep
+                        (update state :no-circular-dep conj dep))
+                      (rest deps))
+                    :no-circular-dep disj dep)]
+              (log-fn dep "<==" res)
+              res))))
+      state)))
 
 (defmethod handle-goal :iteration
   [goal old-state]
@@ -405,15 +389,35 @@
                 (reduce into []))]
      ~(local-dep-symbol goal)))
 
+(defn print-generated-code
+  [form]
+  (->> form
+       (walk/postwalk
+         (fn [s]
+           (cond
+             (symbol? s)
+             (-> s
+                 str
+                 (string/replace #"^clojure.core/" "")
+                 symbol)
+
+             :default s)))
+       pprint/pprint)
+  form)
+
 (defmacro make-with
   "Make a goal out of the environment"
-  [goal env]
-  (-> (run-on-deps (-> &env keys set create-maker-state) [goal])
-      (make-internal goal true)))
+  [goal env log-fn]
+  ;(prn "YYY" (mapv #(vector (first %) (.-sym (second %)) (-> % second .-init eval deref)) env))
+  (let [state (-> env keys set create-maker-state (assoc :log-fn log-fn))]
+    (-> (run-on-deps state [goal])
+        (make-internal goal true)
+        (cond->
+          log-fn print-generated-code))))
 
 (defmacro make
   [goal]
-  `(make-with ~goal ~&env))
+  `(make-with ~goal ~&env nil))
 
 (def #^{:macro true} *- #'make)
 
@@ -425,17 +429,11 @@
                              %))
                       vec)))
 
-(defmacro prn-make-with                                     ;; TODO can we do it somehow without duplication?
-  [goal env]
-  (-> (run-on-deps (-> &env keys set create-maker-state
-                       (assoc :log-fn log-fn))
-                   [goal])
-      (make-internal goal true)
-      print-generated-code))
-
 (defmacro prn-make
-  [goal]
-  `(prn-make-with ~goal ~&env))
+  [goal & [user-log-fn]]
+  `(make-with ~goal ~&env ~(or (and user-log-fn
+                                    (eval user-log-fn))
+                               log-fn)))
 
 (def #^{:macro true} pr*- #'prn-make)
 
