@@ -408,7 +408,6 @@
 (defmacro make-with
   "Make a goal out of the environment"
   [goal env log-fn]
-  ;(prn "YYY" (mapv #(vector (first %) (.-sym (second %)) (-> % second .-init eval deref)) env))
   (let [state (-> env keys set create-maker-state (assoc :log-fn log-fn))]
     (-> (run-on-deps state [goal])
         (make-internal goal true)
