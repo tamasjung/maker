@@ -81,8 +81,8 @@
   [goal]
   (->> goal
        goal-meta
-       ((juxt :deps (comp first :arglists)))                ;; TBD the old :deps remains?
-       (some identity)))
+       :arglists
+       last))
 
 (defn collected-dep
   [goal]
