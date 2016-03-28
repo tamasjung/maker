@@ -38,16 +38,17 @@
   [fqn]
   (-> fqn str (string/split #"/")))
 
-(defn symbol->meta
+(defn symbol-var-meta
   "Returns the meta of the var of the symbol."
   [sym]
-  (eval `(-> ~sym var meta)))
+  (let [r (eval `(-> ~sym var meta))]
+    r))
 
 (defn alias->fqn
   "Convert an alias to fully-qualified symbol"
   [sym]
   (->> sym
-       symbol->meta
+       symbol-var-meta
        ((juxt (comp :name bean :ns) :name))
        (string/join "/")
        symbol))
@@ -67,7 +68,7 @@
   (-> goal
       whole-symbol
       goal-maker-symbol
-      symbol->meta))
+      symbol-var-meta))
 
 (defn local-dep-symbol
   "Returns the local bind symbol for a dependency"
@@ -99,7 +100,7 @@
 (defn multi-dep
   [goal]
   (let [{:keys [selector cases] :as goal-meta}
-        (-> goal whole-symbol goal-maker-symbol symbol->meta)]
+        (-> goal whole-symbol goal-maker-symbol symbol-var-meta)]
     (when (and selector cases)
       goal-meta)))
 
