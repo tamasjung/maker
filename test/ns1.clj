@@ -1,4 +1,5 @@
-(ns ns1
-  (:require [maker.core :as g]))
+(ns ns1)
 
-(g/defgoal a [] 11)
+(defn ns1a*
+  []
+  111)

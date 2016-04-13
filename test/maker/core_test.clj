@@ -1,20 +1,15 @@
 (ns maker.core-test
   (:require [clojure.test :refer :all]
             [maker.core :as m :refer :all]
-            [clojure.pprint :refer :all]
+            [clojure.pprint :refer [pprint]]
             [clojure.string :as string]
             [ns2 :refer [ns2a*]]))
 
-(defmacro g
-  [name params]
-  `(defn ~name [~@params]
-     (list ~@params)))
-
 (deftest munge-test
-  (are [s] (-> s inj-munge inj-munge-inv (= s))
-    "aa"
-    "a.b/c"
-    "ab/c"))
+  (are [s res] (-> s inj-munge (= res))
+    "aa" "aa"
+    "a.b/c" "a_b!c"
+    "ab/c" "ab!c"))
 
 #_(deftest peek-conj-test
   (is (= (conj-top [#{}] 'a)
@@ -24,10 +19,13 @@
 (defn three-times* [d] (* 3 d))
 (defn six-times* [three-times] (* 2 three-times))
 
+(deftest test-deps
+  (pprint (make six-times)))
+
 (defn make-caller
   [d]
   ;; will print (let [] d)
-  (prn-make d #(pprint %&)))
+  (make d #_(pprint %&)))
 
 (deftest inserted-test
   (is (= (make six-times)
@@ -42,13 +40,9 @@
   (is (= (make-caller 3)
          3)))
 
-#_(deftest test-different-ns
-  (is (= 111 (*- ns2a)))
-  #_(is (= 55 (make ns-two/b)))
-    #_(is (= (let [ns1/a 22]
-             (make ns-two/b))
-           110)))
-
+(deftest test-different-ns
+  (is (= 222 (*- ns2a))))
+;
 (declare dd*)
 
 (defn goal-with-dyn-dep* [dd] (+ 10 dd))
@@ -68,52 +62,24 @@
   2)
 
 (defn iterator-items*
-  [factor]
+  []
   (range 10))
 
-(declare ^{:for 'iterator-items} iterator-item*)
+(declare iterator-item*)                                    ;;FIXME from macro
 
 (defn collected-item*
   [factor {:keys [] :as iterator-item}]
   (* iterator-item factor))
 
-(declare ^{:collect 'collected-item} collected-items*)
-
-(defn collected-items-var*
-  [collected-items]
-  collected-items)
-
-(deftest test-collectors
-  (let [factor 2]
-    (is (= (last (make collected-items-var))
-           18))))
-
-(defn iterator-items2*
-  [factor]
-  ["a" "b"])
-
-(declare ^{:for 'iterator-items2} iterator-item2*)
-
-(defn pair*
-  [factor iterator-item iterator-item2]
-  [iterator-item iterator-item2])
-
-(def ^{:collect 'pair} pairs*)
-
-(deftest test-comb
-  (reset! call-counter 0)
-  (is (= (count (make pairs))
-         20))
-  (is (= @call-counter 1)))
-
-
+;FIXME would not work without iterator-item decl above, macro?
 (declare ^{:for 'iterator-items
            :item 'iterator-item
-           :collect 'collected-item} collected-items-static*)
+           :collect 'collected-item}
+         collected-items*)
 
 (deftest test-static-collectors
-  (let [factor 2]
-    (is (= (last (make collected-items-static))
+  (let [facsdftor 2]
+    (is (= (last (make collected-items))
            18))))
 
 (defn m* [] {:a 1 :b 2})
@@ -174,67 +140,67 @@
   (let [d {:type :b}]
     (is (= 'b (*- multigoal)))))
 
-;-------------------------------------------------------------------------------
-
-(defn not-common*
-  [])
-
-(defn common-g*
-  [])
-
-(defn common-it-g*
-  [m-it])
-
-(defn m-its*
-  [not-common]
-  [{:type 'm-a} {:type 'm-b}])
-
-(declare ^{:for 'm-its} m-it*)
-
-(defn m-sel*
-  [m-it]
-  (:type m-it))
-
-(declare ^{:selector 'm-sel :cases ['m-a 'm-b]} m*)
-
-#_(defcase m-sel* [m-a m-b])
-
-#_(defcoll ms* :from m-its)
-
-(defn m-a*
-  [m-it common-g common-it-g not-common]
-  (assoc m-it :m :a))
-
-(defn m-b*
-  [m-it common-g common-it-g]
-  (assoc m-it :m :b))
-
-(declare ^{:collect 'm} ms*)
-
-(deftest test-iterative-multi
-  (is (= (->> (*- ms)
-              (map :m))
-         [:a :b])))
-
-(defn model-1s*
-  []
-  [[1 2] [3 4]])
-
-(def ^{:for 'model-1s} model-1*)
-
-(defn model-2s*
-  [model-1]
-  model-1)
-
-(def ^{:for 'model-2s} model-2*)
-
-(defn view-2*
-  [model-2]
-  (str model-2))
-
-(def ^{:collect 'view-2} view-2s*)
-
-(defn view-1*
-  [view-2s]
-  (string/join "-" view-2s))
+;;-------------------------------------------------------------------------------
+;
+;(defn not-common*
+;  [])
+;
+;(defn common-g*
+;  [])
+;
+;(defn common-it-g*
+;  [m-it])
+;
+;(defn m-its*
+;  [not-common]
+;  [{:type 'm-a} {:type 'm-b}])
+;
+;(declare ^{:for 'm-its} m-it*)
+;
+;(defn m-sel*
+;  [m-it]
+;  (:type m-it))
+;
+;(declare ^{:selector 'm-sel :cases ['m-a 'm-b]} m*)
+;
+;#_(defcase m-sel* [m-a m-b])
+;
+;#_(defcoll ms* :from m-its)
+;
+;(defn m-a*
+;  [m-it common-g common-it-g not-common]
+;  (assoc m-it :m :a))
+;
+;(defn m-b*
+;  [m-it common-g common-it-g]
+;  (assoc m-it :m :b))
+;
+;(declare ^{:collect 'm} ms*)
+;
+;(deftest test-iterative-multi
+;  (is (= (->> (*- ms)
+;              (map :m))
+;         [:a :b])))
+;
+;(defn model-1s*
+;  []
+;  [[1 2] [3 4]])
+;
+;(def ^{:for 'model-1s} model-1*)
+;
+;(defn model-2s*
+;  [model-1]
+;  model-1)
+;
+;(def ^{:for 'model-2s} model-2*)
+;
+;(defn view-2*
+;  [model-2]
+;  (str model-2))
+;
+;(def ^{:collect 'view-2} view-2s*)
+;
+;(defn view-1*
+;  [view-2s]
+;  (string/join "-" view-2s))
 
