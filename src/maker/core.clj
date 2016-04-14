@@ -14,6 +14,10 @@
       (string/replace "_" "+_")
       (string/replace "." "_")))
 
+(defn but-last-char
+  [s]
+  (subs s 0 (-> s count dec)))
+
 (defn whole-param
   "Returns the ':as' symbol or itself"
   [dep]
@@ -69,9 +73,8 @@
                                       ((juxt :ns :name))
                                       (->> (string/join "/"))
                                       inj-munge)]
-                    (-> (subs goal-name 0 (-> goal-name
-                                              count
-                                              dec))
+                    (-> goal-name
+                        but-last-char
                         symbol)))
          :goal-meta (var-meta refered-goal)}))))
 
@@ -381,6 +384,17 @@
                                log-fn)))
 
 (def #^{:macro true} pr*- #'prn-make)
+
+(defmacro defcoll [name & {the-for :for collect :collect item :item}]
+  (assert the-for "Missing mandatory key: 'for'")
+  (let [the-item (or item
+                     (-> the-for str but-last-char symbol))
+        collected (or collect
+                      (-> name str but-last-char but-last-char symbol))]
+    (list `declare (with-meta name
+                              {:for `(quote ~the-for)
+                               :item `(quote ~the-item)
+                               :collect `(quote ~collected)}))))
 
 (defmacro with
   [pairs & body]

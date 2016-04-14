@@ -11,16 +11,12 @@
                "a.b/c" "a_b!c"
                "ab/c" "ab!c"))
 
-#_(deftest peek-conj-test
-    (is (= (conj-top [#{}] 'a)
-           [#{'a}])))
-
 (defn d* [] 5)
 (defn three-times* [d] (* 3 d))
 (defn six-times* [three-times] (* 2 three-times))
 
 (deftest test-deps
-  (pprint (make six-times)))
+  (make six-times))
 
 (defn make-caller
   [d]
@@ -194,13 +190,11 @@
 
 (defn view-two*
   [model-two]
-  (str "|" model-two "|"))
+  (str model-two))
 
 (declare ^{:for 'model-twos
            :item 'model-two
            :collect 'view-two} view-twos*)
-
-;(defcoll view-2s* :for model-2s)
 
 (defn view-one*
   [view-twos]
@@ -209,7 +203,11 @@
 (declare ^{:for 'model-ones
            :item 'model-one
            :collect 'view-one} view-ones*)
+;; or in shorter mode
+(defcoll view-ones* :for model-ones)
 
 (deftest two-levels-iteration
-  (*- view-ones))
+  (is (= (*- view-ones)
+         (list "1-2"
+               "3-4"))))
 
