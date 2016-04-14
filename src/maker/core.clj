@@ -57,8 +57,7 @@
                                 (str "*"))
           refered-goal (-> refered-goal-name
                            symbol
-                           (resolve-in ns))
-          ]
+                           (resolve-in ns))]
       (if-not refered-goal
         (throw (IllegalArgumentException.
                  (str "Could not resolve " refered-goal-name)))
@@ -207,11 +206,11 @@
 
 (defn dependants
   [{:keys [rev-dep-goals item-goal-list]}]
-  (letfn [(add-dependants [result dep]
-            (->> dep
-                 rev-dep-goals
+  (letfn [(add-dependants [result dep-goal]
+            (->> dep-goal
+                 (get rev-dep-goals)
                  (map (partial add-dependants result))
-                 (reduce into #{dep})))]
+                 (reduce into #{dep-goal})))]
     (reduce add-dependants #{} item-goal-list)))
 
 (defmethod handle-goal :iterator-collector
@@ -226,16 +225,17 @@
         stored-keys [:item-goal-list :walk-goal-list]
         collected-state (run-on-goals
                           (-> up-state
-                              (merge (select-keys stored-keys
-                                                  (create-maker-state nil))))
+                              (merge (select-keys (create-maker-state nil)
+                                                  stored-keys)))
                           [(collected-goal goal)])
         local-dependants (dependants (assoc collected-state
                                        :item-goal-list new-item-list))
         collector-maker (collector-maker-call
                           goal
-                          (update collected-state
-                                  :walk-goal-list #(filter local-dependants %)))
-        dep-goals (map iteration-goal new-item-list)
+                          (-> collected-state
+                              (update :walk-goal-list #(filter local-dependants %))
+                              (assoc :item-goal-list new-item-list)))
+        dep-goals [(iteration-goal goal)]
         result-state
         (-> collected-state
             (assoc :local-env (:local-env up-state))

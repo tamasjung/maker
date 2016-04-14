@@ -7,13 +7,13 @@
 
 (deftest munge-test
   (are [s res] (-> s inj-munge (= res))
-    "aa" "aa"
-    "a.b/c" "a_b!c"
-    "ab/c" "ab!c"))
+               "aa" "aa"
+               "a.b/c" "a_b!c"
+               "ab/c" "ab!c"))
 
 #_(deftest peek-conj-test
-  (is (= (conj-top [#{}] 'a)
-         [#{'a}])))
+    (is (= (conj-top [#{}] 'a)
+           [#{'a}])))
 
 (defn d* [] 5)
 (defn three-times* [d] (* 3 d))
@@ -86,7 +86,7 @@
 (defn v* [] [11 22])
 
 (defn destr-goal*
-  [{:keys [a b] :as m}  [c :as v]]
+  [{:keys [a b] :as m} [c :as v]]
   (list a b m c v))
 
 (deftest test-destr
@@ -140,67 +140,76 @@
   (let [d {:type :b}]
     (is (= 'b (*- multigoal)))))
 
-;;-------------------------------------------------------------------------------
-;
-;(defn not-common*
-;  [])
-;
-;(defn common-g*
-;  [])
-;
-;(defn common-it-g*
-;  [m-it])
-;
-;(defn m-its*
-;  [not-common]
-;  [{:type 'm-a} {:type 'm-b}])
-;
-;(declare ^{:for 'm-its} m-it*)
-;
-;(defn m-sel*
-;  [m-it]
-;  (:type m-it))
-;
-;(declare ^{:selector 'm-sel :cases ['m-a 'm-b]} m*)
-;
-;#_(defcase m-sel* [m-a m-b])
-;
-;#_(defcoll ms* :from m-its)
-;
-;(defn m-a*
-;  [m-it common-g common-it-g not-common]
-;  (assoc m-it :m :a))
-;
-;(defn m-b*
-;  [m-it common-g common-it-g]
-;  (assoc m-it :m :b))
-;
-;(declare ^{:collect 'm} ms*)
-;
-;(deftest test-iterative-multi
-;  (is (= (->> (*- ms)
-;              (map :m))
-;         [:a :b])))
-;
-;(defn model-1s*
-;  []
-;  [[1 2] [3 4]])
-;
-;(def ^{:for 'model-1s} model-1*)
-;
-;(defn model-2s*
-;  [model-1]
-;  model-1)
-;
-;(def ^{:for 'model-2s} model-2*)
-;
-;(defn view-2*
-;  [model-2]
-;  (str model-2))
-;
-;(def ^{:collect 'view-2} view-2s*)
-;
-;(defn view-1*
-;  [view-2s]
-;  (string/join "-" view-2s))
+;-------------------------------------------------------------------------------
+
+(defn not-common*
+  [])
+
+(defn common-g*
+  [])
+
+(defn common-it-g*
+  [m-it])
+
+(defn m-its*
+  []
+  [{:type 'm-a} {:type 'm-b}])
+
+(declare m-it*)
+
+(defn m-sel*
+  [m-it]
+  (:type m-it))
+
+(declare ^{:selector 'm-sel :cases ['m-a 'm-b]} m*)
+
+(defn m-a*
+  [m-it common-g common-it-g not-common]
+  (assoc m-it :m :a))
+
+(defn m-b*
+  [m-it common-g common-it-g]
+  (assoc m-it :m :b))
+
+(declare ^{:collect 'm
+           :for 'm-its
+           :item 'm-it} ms*)
+
+(deftest test-iterative-multi
+  (is (= (->> (*- ms)
+              (map :m))
+         [:a :b])))
+
+(defn model-ones*
+  []
+  [[1 2] [3 4]])
+
+(declare model-one*)
+
+(defn model-twos*
+  [model-one]
+  model-one)
+
+(declare model-two*)
+
+(defn view-two*
+  [model-two]
+  (str "|" model-two "|"))
+
+(declare ^{:for 'model-twos
+           :item 'model-two
+           :collect 'view-two} view-twos*)
+
+;(defcoll view-2s* :for model-2s)
+
+(defn view-one*
+  [view-twos]
+  (string/join "-" view-twos))
+
+(declare ^{:for 'model-ones
+           :item 'model-one
+           :collect 'view-one} view-ones*)
+
+(deftest two-levels-iteration
+  (*- view-ones))
 
