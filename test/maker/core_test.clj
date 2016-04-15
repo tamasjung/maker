@@ -149,7 +149,7 @@
 
 (defn m-its*
   []
-  [{:type 'm-a} {:type 'm-b}])
+  [{:type 'm-aa} {:type 'm-bs}])
 
 (declare m-it*)
 
@@ -157,15 +157,30 @@
   [m-it]
   (:type m-it))
 
-(declare ^{:selector 'm-sel :cases ['m-a 'm-b]} m*)
+(declare ^{:selector 'm-sel :cases ['m-aa 'm-bs]} m*)
+
+(defn m-subits* [])
+
+(defn m-sub*
+  [m-subit])
+
+(declare m-subit*)
+
+(defcoll m-subs* :for m-subits)
 
 (defn m-a*
-  [m-it common-g common-it-g not-common]
+  [m-it common-g common-it-g not-common m-subit]
   (assoc m-it :m :a))
 
 (defn m-b*
-  [m-it common-g common-it-g]
+  [m-it common-g common-it-g m-subit]
   (assoc m-it :m :b))
+
+(defcoll m-as* :for m-subits)
+
+(defcoll m-bs* :for m-subits)
+
+(defn m-aa* [m-as])
 
 (declare ^{:collect 'm
            :for 'm-its
@@ -173,8 +188,8 @@
 
 (deftest test-iterative-multi
   (is (= (->> (*- ms)
-              (map :m))
-         [:a :b])))
+              count)
+         2)))
 
 (defn model-ones*
   []

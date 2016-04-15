@@ -233,20 +233,23 @@
                           [(collected-goal goal)])
         local-dependants (dependants (assoc collected-state
                                        :item-goal-list new-item-list))
+        non-local-dependants (remove local-dependants
+                                     (:walk-goal-list collected-state))
         collector-maker (collector-maker-call
                           goal
                           (-> collected-state
-                              (update :walk-goal-list #(filter local-dependants %))
+                              (update :walk-goal-list
+                                      #(filter local-dependants %))
                               (assoc :item-goal-list new-item-list)))
-        dep-goals [(iteration-goal goal)]
+        dep-goals (reduce into [] [[(iteration-goal goal)]
+                                   non-local-dependants])
         result-state
         (-> collected-state
             (assoc :local-env (:local-env up-state))
             (merge (select-keys up-state                    ;;restore state
                                 stored-keys))
             (update :walk-goal-list concat
-                    (remove local-dependants
-                            (:walk-goal-list collected-state)))
+                    non-local-dependants)
             (update :local-env into (set/difference (:local-env collected-state)
                                                     local-dependants)))]
     (combine-maker-state
@@ -391,10 +394,12 @@
                      (-> the-for str but-last-char symbol))
         collected (or collect
                       (-> name str but-last-char but-last-char symbol))]
-    (list `declare (with-meta name
-                              {:for `(quote ~the-for)
-                               :item `(quote ~the-item)
-                               :collect `(quote ~collected)}))))
+    (vector
+      `(declare ~(-> the-item (str "*") symbol))
+      (list `declare (with-meta name
+                                  {:for `(quote ~the-for)
+                                   :item `(quote ~the-item)
+                                   :collect `(quote ~collected)})))))
 
 (defmacro with
   [pairs & body]
