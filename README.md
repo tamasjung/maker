@@ -28,7 +28,7 @@
     * conditionals
 * Pros
   * small
-  * building block are plain functions
+  * building blocks are plain functions
   * solves the parameter order issue
   * save us from the boilerplate part of the code
   * leverage Clojure's dependency notation of `ns` macro and `require` function
