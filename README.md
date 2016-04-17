@@ -8,7 +8,7 @@
     * more pure functions
     * more orthogonal functions
   * software architecture which
-    * separates logic from execution manner 
+    * separates logic, data transformation from execution manner 
   * a macro;
   * experimental!!!
   * written in Clojure for Clojure apps
@@ -16,9 +16,10 @@
     * old dependency injection frameworks
     * goal oriented programming
     * declerative programming
-  * NOT a backtrack to OOP
-  * NOT primarly for managing components' live cycle but can be used for that too
-  * NOT a build automation specific tool but probably it would be easy to ...
+    * build tools
+  * not a backtrack to OOP
+  * not primarly for managing components' live cycle but can be used for that too
+  * not a build automation specific tool but probably it would be easy to ...
 * Features
   * dependency tracking by looking for functions based on parameter names
   * works across namespaces
@@ -27,25 +28,27 @@
     * conditionals
 * Pros
   * small
-  * based on plain functions
+  * building block are plain functions
   * solves the parameter order issue
   * save us from the boilerplate part of the code
   * leverage Clojure's dependency notation of `ns` macro and `require` function
 * Cons
-  * new style - new mistakes
-  * harder to debug 
-* Future plans, ideas
+  * new paradigm - new mistakes
+  * needs preparing for debugging
+* Possible future directions, ideas
   * other execution plans (the current one is depth-first serial)
     * for parallel computing 
     * for asynchronous goals
   * adoption in ClojureScript
   * configurable mapping from parameter to maker function
   * pluggable extensions
-  * type checking, specifying the return type would be enough
+  * special type checker
 
 ## Usage
-
-FIXME
+```clj
+[tamasjung/maker "0.0.1"]
+```
+[See the tests](test/maker/core_test.clj)
 
 ## License
 
