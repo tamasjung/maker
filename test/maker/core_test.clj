@@ -83,9 +83,7 @@
   [factor iterator-item]
   (* iterator-item factor))
 
-(declare ^{:for 'iterator-items
-           :item 'iterator-item
-           :collect 'collected-item}
+(declare ^{:for 'iterator-items}
          collected-items*)
 
 #_(defrel collected-items* :for [iterator-item iterator-items]
@@ -97,6 +95,14 @@
   ;; despite it is required inside the iteration
   ;; 'factor' is made in the 'right' place and called only once
   (is (= @call-counter 1)))
+
+(declare ^{:for '[iterator-item iterator-items]
+           :collect 'collected-item}
+         another-collected-items*)
+
+(deftest test-for-vector
+  (is (= (last (make another-collected-items))
+         18)))
 
 ;-------------------------------------------------------------------------------
 
@@ -213,9 +219,7 @@
 
 (defn m-aa* [m-as])
 
-(declare ^{:collect 'm
-           :for 'm-its
-           :item 'm-it} ms*)
+(declare ^{:for 'm-its} ms*)
 
 (deftest test-iterative-multi
   (is (= (->> (make ms)
@@ -248,8 +252,7 @@
   [view-twos]
   (string/join "-" view-twos))
 
-(declare ^{:for 'model-ones
-           :item 'model-one
+(declare ^{:for '[model-one model-ones]
            :collect 'view-one} view-ones*)
 ;; or in shorter way
 (defcoll view-ones* :for model-ones)

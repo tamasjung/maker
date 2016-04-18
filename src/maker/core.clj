@@ -18,6 +18,12 @@
   [s]
   (subs s 0 (-> s count dec)))
 
+(defn without-end
+  [s end-char]
+  (when (re-find (re-pattern (str end-char "$"))
+                 s)
+    (but-last-char s)))
+
 (defn whole-param
   "Returns the ':as' symbol or itself"
   [dep]
@@ -94,15 +100,30 @@
 
 (defn collected-goal
   [goal]
-  (related-goal goal :collect))
+  (related-goal goal #(or (:collect %)
+                          (-> %
+                              :name
+                              str
+                              (without-end "\\*")
+                              (without-end "s")
+                              symbol))))
 
 (defn iteration-goal
   [goal]
-  (related-goal goal :for))
+  (related-goal goal #(when-let [for-val (:for %)]
+                       (cond
+                         (vector? for-val) (second for-val)
+                         (symbol? for-val) for-val))))
 
 (defn item-goal
   [goal]
-  (related-goal goal :item))
+  (related-goal goal #(when-let [for-val (:for %)]
+                       (cond
+                         (vector? for-val) (first for-val)
+                         (symbol? for-val) (-> for-val
+                                               str
+                                               (without-end "s")
+                                               symbol)))))
 
 (defn multi-goal-meta
   [goal]
@@ -146,9 +167,7 @@
 (defn handler-selector
   [goal _]
   (cond
-    (let [{:keys [for collect item]}
-          (-> goal :goal-meta)]
-      (and for collect item)) :iterator-collector
+    (-> goal :goal-meta :for) :iterator-collector
     (multi-goal-meta goal) :multi
     :else :default))
 
