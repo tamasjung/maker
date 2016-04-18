@@ -47,7 +47,7 @@
 ;-------------------------------------------------------------------------------
 
 (deftest test-across-nss
-  ;; for external namespaces maker munge the binding names,
+  ;; for external namespaces maker munges the binding names,
   ;; check it with macroexpansion
   (is (= 222 (make ns2a))))
 
