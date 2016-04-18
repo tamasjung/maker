@@ -32,10 +32,9 @@
                       (str "Unrecogonized dependency:" dep ".")))))
 
 (defn var-meta
-  "Returns the meta of the var of the symbol."
-  [sym]
-  (let [r (eval `(-> ~sym meta))]
-    r))
+  "Returns the meta of the var."
+  [var]
+  (eval `(-> ~var meta)))
 
 (defn resolve-in
   [symbol ns]
@@ -380,13 +379,13 @@
                       %))
                vec)))
 
-(defmacro prn-make
+(defmacro pp-make
   [goal & [user-log-fn]]
   `(make-with ~goal ~&env ~(or (and user-log-fn
                                     (eval user-log-fn))
                                log-fn)))
 
-(def #^{:macro true} pr*- #'prn-make)
+(def #^{:macro true} pp*- #'pp-make)
 
 (defmacro defcoll [name & {the-for :for collect :collect item :item}]
   (assert the-for "Missing mandatory key: 'for'")
