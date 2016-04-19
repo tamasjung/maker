@@ -14,17 +14,20 @@
       (string/replace "_" "+_")
       (string/replace "." "_")))
 
-(def maker-postfix "*")
-
-(def maker-post-fix-patter-str "\\*")
+(def maker-postfix \*)
 
 (defn but-last-char
   [s]
   (subs s 0 (-> s count dec)))
 
+(def escape-set #{\* \+})
+
 (defn without-end
   [s end-char]
-  (when (re-find (re-pattern (str end-char "$"))
+  (when (re-find (re-pattern (str (when (escape-set end-char)
+                                    "\\")
+                                  end-char
+                                  "$"))
                  s)
     (but-last-char s)))
 
@@ -88,13 +91,10 @@
                            (resolve-in ns))]
       (if-not refered-goal
         (on-the-fly-goal-decl ns whole-p)
-        #_(throw (IllegalArgumentException.
-                   (str "Could not resolve " refered-goal-name)))
         {:goal refered-goal
          :local (gen-local-sym
                   (-> refered-goal meta :ns)
-                  (-> refered-goal meta :name str (without-end
-                                                    maker-post-fix-patter-str)))
+                  (-> refered-goal meta :name str (without-end maker-postfix)))
          :goal-meta (var-meta refered-goal)}))))
 
 (defn goal-dep-goals
@@ -118,8 +118,8 @@
                           (-> %
                               :name
                               str
-                              (without-end "\\*")
-                              (without-end "s")
+                              (without-end \*)
+                              (without-end \s)
                               symbol))))
 
 (defn iteration-goal
@@ -136,7 +136,7 @@
                          (vector? for-val) (first for-val)
                          (symbol? for-val) (-> for-val
                                                str
-                                               (without-end "s")
+                                               (without-end \s)
                                                symbol)))))
 
 (defn multi-goal-meta
@@ -348,15 +348,6 @@
                                (into {}))
            :walk-goal-list [goal]
            :local-env #{(:local goal)}}))))
-
-(defn load-depencies
-  "Call 'require' on every given namespace if necessary"
-  [namespaces]
-  #_(doseq [r namespaces]
-      (try
-        (ns-name r)                                         ;; TODO any better way to detect an unloaded ns?
-        (catch Throwable _
-          (require r)))))
 
 (defn make-internal
   [{:keys [walk-goal-list bindings] :as _state} goal]
