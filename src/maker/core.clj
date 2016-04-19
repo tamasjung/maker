@@ -14,6 +14,10 @@
       (string/replace "_" "+_")
       (string/replace "." "_")))
 
+(def maker-postfix "*")
+
+(def maker-post-fix-patter-str "\\*")
+
 (defn but-last-char
   [s]
   (subs s 0 (-> s count dec)))
@@ -58,29 +62,39 @@
   [goal]
   (:local goal))
 
+(defn gen-local-sym
+  [ns name]
+  (if (= *ns* ns)
+    (if (symbol? name)
+      name
+      (symbol name))
+    (-> [ns name]
+        (->> (string/join "/"))
+        inj-munge
+        symbol)))
+
+(defn on-the-fly-goal-decl
+  [ns whole-param-name]
+  {:local (gen-local-sym ns whole-param-name)})
+
 (defn goal-for-param
   [ns param]
   (when param
     (let [whole-p (whole-param param)
           refered-goal-name (-> whole-p
-                                (str "*"))
+                                (str maker-postfix))
           refered-goal (-> refered-goal-name
                            symbol
                            (resolve-in ns))]
       (if-not refered-goal
-        (throw (IllegalArgumentException.
-                 (str "Could not resolve " refered-goal-name)))
+        (on-the-fly-goal-decl ns whole-p)
+        #_(throw (IllegalArgumentException.
+                   (str "Could not resolve " refered-goal-name)))
         {:goal refered-goal
-         :local (if (= *ns* ns)
-                  whole-p
-                  (let [goal-name (-> refered-goal
-                                      meta
-                                      ((juxt :ns :name))
-                                      (->> (string/join "/"))
-                                      inj-munge)]
-                    (-> goal-name
-                        but-last-char
-                        symbol)))
+         :local (gen-local-sym
+                  (-> refered-goal meta :ns)
+                  (-> refered-goal meta :name str (without-end
+                                                    maker-post-fix-patter-str)))
          :goal-meta (var-meta refered-goal)}))))
 
 (defn goal-dep-goals
@@ -138,8 +152,7 @@
    :local-env (or env #{})
    :no-circular-dep #{}
    :walk-goal-list []
-   :rev-dep-goals {}
-   :item-goal-list []})
+   :rev-dep-goals {}})
 
 (defn combine-items
   [m1 m2]
@@ -161,7 +174,6 @@
            [:local-env into #{}]
            [:no-circular-dep into #{}]
            [:walk-goal-list (comp distinct concat) []]
-           [:item-goal-list (comp distinct concat) []]
            [:log-fn #(or %1 %2) nil]]))
 
 (defn handler-selector
@@ -203,7 +215,7 @@
 (declare make-internal)
 
 (defn collector-maker-call
-  [goal {:keys [item-goal-list] :as state}]
+  [goal state item-goal-list]
   (assert (= 1 (count item-goal-list)))
   (let [collected (collected-goal goal)]
     `(for [~(->> item-goal-list first local-dep-symbol)
@@ -226,7 +238,7 @@
            case-goals))))
 
 (defn dependants
-  [{:keys [rev-dep-goals item-goal-list]}]
+  [{:keys [rev-dep-goals]} item-goal-list]
   (letfn [(add-dependants [result dep-goal]
             (->> dep-goal
                  (get rev-dep-goals)
@@ -241,24 +253,22 @@
         up-state (-> in-state
                      (run-on-goals [(iteration-goal goal)])
                      (combine-maker-state
-                       {:item-goal-list new-item-list
-                        :local-env #{(:local item-goal)}}))
-        stored-keys [:item-goal-list :walk-goal-list]
+                       {:local-env #{(:local item-goal)}}))
+        stored-keys [:walk-goal-list]
         collected-state (run-on-goals
                           (-> up-state
                               (merge (select-keys (create-maker-state nil)
                                                   stored-keys)))
                           [(collected-goal goal)])
-        local-dependants (dependants (assoc collected-state
-                                       :item-goal-list new-item-list))
+        local-dependants (dependants collected-state new-item-list)
         non-local-dependants (remove local-dependants
                                      (:walk-goal-list collected-state))
         collector-maker (collector-maker-call
                           goal
                           (-> collected-state
                               (update :walk-goal-list
-                                      #(filter local-dependants %))
-                              (assoc :item-goal-list new-item-list)))
+                                      #(filter local-dependants %)))
+                          new-item-list)
         dep-goals (reduce into [] [[(iteration-goal goal)]
                                    non-local-dependants])
         result-state
@@ -406,18 +416,17 @@
 
 (def #^{:macro true} pp*- #'pp-make)
 
-(defmacro defcoll [name & {the-for :for collect :collect item :item}]
+(defmacro defcoll [name & {the-for :for collect :collect}]
   (assert the-for "Missing mandatory key: 'for'")
-  (let [the-item (or item
-                     (-> the-for str but-last-char symbol))
+  (let [the-item (or
+                   (-> the-for str but-last-char symbol))
         collected (or collect
                       (-> name str but-last-char but-last-char symbol))]
     (vector
-      `(declare ~(-> the-item (str "*") symbol))
+      `(declare ~(-> the-item (str maker-postfix) symbol))
       (list `declare (with-meta name
-                                  {:for `(quote ~the-for)
-                                   :item `(quote ~the-item)
-                                   :collect `(quote ~collected)})))))
+                                {:for `(quote ~the-for)
+                                 :collect `(quote ~collected)})))))
 
 (defmacro with
   [pairs & body]

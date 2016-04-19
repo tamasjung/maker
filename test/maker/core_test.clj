@@ -118,7 +118,7 @@
   (is (= (make destr-goal)
          (list 1 2 {:a 1 :b 2} 11 [11 22]))))
 
-;; destructuring wiht dynamic goals
+;; destructuring wiht dynamic (declared, not defined) goals
 
 (declare dm*)
 (declare dv*)
@@ -244,9 +244,7 @@
   [model-two]
   (str model-two))
 
-(declare ^{:for 'model-twos
-           :item 'model-two
-           :collect 'view-two} view-twos*)
+(declare ^{:for 'model-twos} view-twos*)
 
 (defn view-one*
   [view-twos]
@@ -254,6 +252,11 @@
 
 (declare ^{:for '[model-one model-ones]
            :collect 'view-one} view-ones*)
+
+(deftest two-levels-iteration
+  (is (= (make view-ones)
+         (list "1-2"
+               "3-4"))))
 ;; or in shorter way
 (defcoll view-ones* :for model-ones)
 
