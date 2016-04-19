@@ -79,11 +79,7 @@
   [factor iterator-item]
   (* iterator-item factor))
 
-(declare ^{:for 'iterator-items}
-         collected-items*)
-
-#_(defrel collected-items* :for [iterator-item iterator-items]
-             :collect collected-item)
+(defrelation collected-items* :for iterator-items)
 
 (deftest test-static-collectors
   (is (= (last (make collected-items))
@@ -185,7 +181,7 @@
   [m-it]
   (:type m-it))
 
-(declare ^{:selector 'm-sel :cases ['m-aa 'm-bs]} m*)
+(defrelation m* :selector m-sel :cases [m-aa m-bs])
 
 (defn m-subits* [])
 
