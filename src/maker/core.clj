@@ -220,7 +220,7 @@
   (let [collected (collected-goal goal)]
     `(for [~(->> item-goal-list first local-dep-symbol)
            ~(-> goal iteration-goal local-dep-symbol)]
-       ~(make-internal state collected false))))
+       ~(make-internal state collected))))
 
 (defn goal-maker-call
   [goal goal-deps]
@@ -232,9 +232,7 @@
     `(case ~selector
        ~@(mapcat
            #(vector (local-dep-symbol %)
-                    (make-internal (get cases-states %)
-                                   %
-                                   false))
+                    (make-internal (get cases-states %) %))
            case-goals))))
 
 (defn dependants
@@ -361,7 +359,7 @@
           (require r)))))
 
 (defn make-internal
-  [{:keys [walk-goal-list bindings] :as state} goal fail-on-opens]
+  [{:keys [walk-goal-list bindings] :as _state} goal]
   `(let [~@(->> walk-goal-list
                 reverse
                 (map bindings)
@@ -390,7 +388,7 @@
   (let [state (-> env keys set create-maker-state (assoc :log-fn log-fn))
         goal (goal-for-param *ns* goal-sym)]
     (-> (run-on-goals state [goal])
-        (make-internal goal true)
+        (make-internal goal)
         (cond->
           log-fn print-generated-code))))
 
