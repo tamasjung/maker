@@ -421,7 +421,6 @@
         collected (or collect
                       (-> name str but-last-char but-last-char symbol))]
     (vector
-      `(declare ~(-> the-item (str maker-postfix) symbol))
       (list `declare (with-meta name
                                 {:for `(quote ~the-for)
                                  :collect `(quote ~collected)})))))

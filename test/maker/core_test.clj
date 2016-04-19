@@ -53,8 +53,6 @@
 
 ;-------------------------------------------------------------------------------
 
-(declare dd*)
-
 (defn goal-with-dyn-dep* [dd] (+ 10 dd))
 
 (deftest test-dynamic-goal
@@ -76,8 +74,6 @@
 (defn iterator-items*
   []
   (range 10))
-
-(declare iterator-item*)
 
 (defn collected-item*
   [factor iterator-item]
@@ -118,10 +114,7 @@
   (is (= (make destr-goal)
          (list 1 2 {:a 1 :b 2} 11 [11 22]))))
 
-;; destructuring wiht dynamic (declared, not defined) goals
-
-(declare dm*)
-(declare dv*)
+;; destructuring wiht dynamic goals
 
 (defn d-destr-goal*
   [{:keys [a b] :as dm} [c :as dv]]
@@ -188,8 +181,6 @@
   []
   [{:type 'm-aa} {:type 'm-bs}])
 
-(declare m-it*)
-
 (defn m-sel*
   [m-it]
   (:type m-it))
@@ -200,8 +191,6 @@
 
 (defn m-sub*
   [m-subit])
-
-(declare m-subit*)
 
 (defcoll m-subs* :for m-subits)
 
@@ -232,13 +221,9 @@
   []
   [[1 2] [3 4]])
 
-(declare model-one*)
-
 (defn model-twos*
   [model-one]
   model-one)
-
-(declare model-two*)
 
 (defn view-two*
   [model-two]
