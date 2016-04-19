@@ -414,19 +414,15 @@
 
 (def #^{:macro true} pp*- #'pp-make)
 
-(defmacro defcoll [name & {the-for :for collect :collect}]
-  (assert the-for "Missing mandatory key: 'for'")
-  (let [the-item (or
-                   (-> the-for str but-last-char symbol))
-        collected (or collect
-                      (-> name str but-last-char but-last-char symbol))]
-    (vector
-      (list `declare (with-meta name
-                                {:for `(quote ~the-for)
-                                 :collect `(quote ~collected)})))))
+(defmacro defrelation
+  [name & {:as relations}]
+  (list `declare (with-meta name
+                            (into {}
+                                  (for [[k v] relations]
+                                    [k `(quote ~v)])))))
 
-(defmacro with
-  [pairs & body]
+#_(defmacro with
+    [pairs & body]
   (assert (-> pairs count even?))
   `(let [~@(->> pairs
                 (partition 2)
@@ -434,24 +430,3 @@
                            second))
                 (reduce into []))]
      ~@body))
-
-;(defmacro defgoal
-;  [the-name deps & body]
-;  `(do
-;     (defn ~the-name [~@(map dep-param-symbol deps)]
-;       ~@body)
-;     (alter-meta! (var ~the-name)
-;                  assoc
-;                  :goal true
-;                  :deps (quote ~(mapv (comp alias->fqn
-;                                            goal-maker-symbol)
-;                                      deps)))))
-;
-;(defmacro declare-goal
-;  "Declare a goal"
-;  [the-name]
-;  `(defgoal ~the-name
-;            []
-;            (throw (ex-info ~(str "Goal definition is missing "
-;                                  *ns* "/" the-name)
-;                            {:type ::goal-runtime}))))

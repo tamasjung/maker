@@ -192,7 +192,7 @@
 (defn m-sub*
   [m-subit])
 
-(defcoll m-subs* :for m-subits)
+(defrelation m-subs* :for m-subits)
 
 (defn m-a*
   [m-it common-g common-it-g not-common m-subit]
@@ -202,9 +202,9 @@
   [m-it common-g common-it-g m-subit]
   (assoc m-it :m :b))
 
-(defcoll m-as* :for m-subits)
+(defrelation m-as* :for m-subits)
 
-(defcoll m-bs* :for m-subits)
+(defrelation m-bs* :for m-subits)
 
 (defn m-aa* [m-as])
 
@@ -243,7 +243,7 @@
          (list "1-2"
                "3-4"))))
 ;; or in shorter way
-(defcoll view-ones* :for model-ones)
+(defrelation view-ones* :for model-ones)
 
 (deftest two-levels-iteration
   (is (= (make view-ones)
