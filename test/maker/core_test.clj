@@ -234,14 +234,14 @@
 (declare ^{:for '[model-one model-ones]
            :collect 'view-one} view-ones*)
 
-(deftest two-levels-iteration
+(deftest two-levels-iteration-with-metas
   (is (= (make view-ones)
          (list "1-2"
                "3-4"))))
 ;; or in shorter way
 (defrelation view-ones* :for model-ones)
 
-(deftest two-levels-iteration
+(deftest two-levels-iteration-with-defrel
   (is (= (make view-ones)
          (list "1-2"
                "3-4"))))
