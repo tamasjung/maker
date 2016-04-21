@@ -6,8 +6,4 @@
   :dependencies [[org.clojure/clojure "1.8.0"]]
   :source-paths ["src"]
   :profiles {:dev [:dev-common :dev-local]
-             :dev-common {:plugins [[org.clojure/tools.nrepl "0.2.12"
-                                     :exclusions [[org.clojure/clojure]]]
-                                    [com.jakemccrary/lein-test-refresh "0.12.0"]]
-                          :test-refresh {:changes-only true}
-                          :dependencies [[org.clojure/tools.nrepl "0.2.12"]]}})
+             :dev-common {}})
