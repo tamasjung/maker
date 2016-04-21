@@ -5,20 +5,17 @@
 
 A Clojure library to explore dependency injection technique in a functional way. 
 
-* For data transformation applications it helps creating
-    * more pure functions
-    * more orthogonal functions
 * It is 
   * a macro;
   * experimental!!!
-  * is influenced by
+  * influenced by
     * old dependency injection frameworks
     * goal oriented programming
     * declerative programming
     * build tools
 * It is not
   * a backtrack to OOP
-  * is not a build automation specific tool but probably it would be easy to use for
+  * a build automation specific tool but probably it would be easy to use for
 
 ##Features
 
@@ -27,17 +24,6 @@ A Clojure library to explore dependency injection technique in a functional way.
 * handles 
   * iterations
   * conditionals
-
-##Pros
-* small
-* building blocks are plain functions
-* solves the parameter order issue
-* save us from the boilerplate part of the code
-* leverage Clojure's dependency notation of `ns` macro and `require` function
-
-## Cons
-* new tool - new mistakes
-* needs some preparation for debugging
 
 ## Possible future directions
 * other execution plans (the current one is depth-first serial)
