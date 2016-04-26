@@ -245,3 +245,23 @@
   (is (= (make view-ones)
          (list "1-2"
                "3-4"))))
+
+;-------------------------------------------------------------------------------
+
+(defn open-factor* [] 3)
+
+(defn open-dep*
+  [open-factor open-it]
+  (str open-it " dep"))
+
+(defn open-goal*
+  [open-acc open-dep]
+  (str open-acc open-dep " goal"))
+
+(defrelation open-goal-fn*
+             :params [open-acc open-it]
+             :result open-goal)
+
+(deftest open-goal-test
+  (is (= ((make open-goal-fn) "init " "it")
+         "init it dep goal")))
