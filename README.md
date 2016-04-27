@@ -36,7 +36,7 @@ A Clojure library to explore dependency injection technique in a functional way.
 
 ## Usage
 ```clj
-[tamasjung/maker "0.1.2"]
+[maker "0.1.2"]
 ```
 [See the tests](test/maker/core_test.clj)
 
