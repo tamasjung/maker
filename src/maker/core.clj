@@ -462,6 +462,13 @@
                                   (for [[k v] relations]
                                     [k `(quote ~v)])))))
 
+(defmacro defgoal
+  [name & fdecl]
+  `(defn ~(-> name
+              (str maker-postfix)
+              symbol)
+     ~@fdecl))
+
 #_(defmacro with
     [pairs & body]
     (assert (-> pairs count even?))

@@ -181,7 +181,7 @@
   [m-it]
   (:type m-it))
 
-(defrelation m* :selector m-sel :cases [m-aa m-bs])
+(defrelation m :selector m-sel :cases [m-aa m-bs])
 
 (defn m-subits* [])
 
@@ -239,7 +239,8 @@
          (list "1-2"
                "3-4"))))
 ;; or in shorter way
-(defrelation view-ones* :for model-ones)
+(defrelation view-ones*
+  :for model-ones)
 
 (deftest two-levels-iteration-with-defrel
   (is (= (make view-ones)
@@ -247,8 +248,8 @@
                "3-4"))))
 
 ;-------------------------------------------------------------------------------
-
-(defn open-factor* [] 3)
+;this is also a test for defgoal macro
+(defgoal open-factor [] 3)
 
 (defn open-dep*
   [open-factor open-it]
@@ -259,8 +260,8 @@
   (str open-acc open-dep " goal"))
 
 (defrelation open-goal-fn*
-             :params [open-acc open-it]
-             :result open-goal)
+  :params [open-acc open-it]
+  :result open-goal)
 
 (deftest open-goal-test
   (is (= ((make open-goal-fn) "init " "it")
