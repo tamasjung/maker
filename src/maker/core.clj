@@ -234,13 +234,6 @@
            ~(-> goal iteration-goal local-dep-symbol)]
        ~(make-internal state collected))))
 
-(defn fn-maker-call
-  [goal state param-goals]
-  (let [result-goal (result-goal goal)]
-    `(fn ~(-> result-goal :local gensym)
-       [~@(->> param-goals (map local-dep-symbol))]
-       ~(make-internal state result-goal))))
-
 (defn goal-maker-call
   [goal goal-deps]
   `(~(goal-maker-symbol goal) ~@(map local-dep-symbol goal-deps)))
@@ -262,40 +255,6 @@
                  (map (partial add-dependants result))
                  (reduce into #{dep-goal})))]
     (reduce add-dependants #{} item-goal-list)))
-
-(defmethod handle-goal :goal-fn
-  [goal in-state]
-  (let [param-goals (param-goals goal)
-        scope-state (combine-maker-state in-state
-                                         {:local-env
-                                          (->> param-goals
-                                               (map :local)
-                                               set)})
-        result-state (run-on-goals
-                       (assoc scope-state :walk-goal-list [])
-                       [(result-goal goal)])
-        local-dependants (dependants result-state param-goals)
-        non-local-dependants (remove local-dependants
-                                     (:walk-goal-list result-state))
-        fn-maker (fn-maker-call goal
-                                (-> result-state
-                                    (update :walk-goal-list
-                                            #(filter local-dependants %)))
-                                param-goals)]
-    (-> result-state
-        (assoc :walk-goal-list (concat (:walk-goal-list in-state)
-                                       non-local-dependants))
-        (update :local-env into (set/difference (:local-env result-state)
-                                                (->> local-dependants
-                                                     (map :local)
-                                                     set)))
-        (combine-maker-state
-          {:bindings {goal [(local-dep-symbol goal) fn-maker]}
-           :walk-goal-list [goal]
-           :rev-dep-goals (->> non-local-dependants
-                               (map #(vector % [goal]))
-                               (into {}))
-           :local-env #{(:local goal)}}))))
 
 (defmethod handle-goal :iterator-collector
   [goal in-state]
