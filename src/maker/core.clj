@@ -428,6 +428,29 @@
               symbol)
      ~@fdecl))
 
+(def selectors (atom {}))
+
+(defmacro defsel
+  [kw args body]
+  (let [cases (get-in @selectors [kw :cases])
+        selector-symbol (-> kw name symbol)]
+    `(do
+       (defn ~selector-symbol [~@args]
+         ~@body)
+       (defrelation selector-symbol :selector selector-symbol :cases [~@cases])
+       (swap! selectors assoc :frozen true))))
+
+(defmacro defcase [case-symbol kw args body]
+  (do
+    (when (-> @selectors
+              kw
+              :frozen)
+      (throw (ex-info (str kw " has already been frozen.") {:case case-symbol})))
+    (let [selector-symbol (-> kw name symbol)]
+      (swap! selectors update-in [kw :cases] (fnil conj []) case-symbol)
+      `(defn ~selector-symbol [~@args]
+         ~@body))))
+
 #_(defmacro with
     [pairs & body]
     (assert (-> pairs count even?))

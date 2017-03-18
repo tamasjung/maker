@@ -126,8 +126,8 @@
 
 ;; circular dependency is an error at compile time
 
-(defn self* [self]
-  1)
+(defn self*
+  [self])
 
 (deftest circular-dep
   (is (thrown? Throwable (eval '(make self)))))
@@ -161,6 +161,24 @@
     (is (= 'a (make multigoal))))
   (let [d {:type :b}]
     (is (= 'b (make multigoal)))))
+
+;-------------------------------------------------------------------------------
+
+(declare sc-sel)
+
+(defgoal sc-a
+  []
+  "a")
+
+(defrel sc-a :case {sc-sel :a})
+
+(defgoal :case {sc-set :b}
+  [sc-a]
+  (str sc-a "b"))
+
+(defsel sc-sel
+  [sc-a input]
+  (:type input))
 
 ;-------------------------------------------------------------------------------
 
