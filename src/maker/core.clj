@@ -48,11 +48,6 @@
     :default (throw (IllegalArgumentException.
                       (str "Unrecognized dependency:" dep ".")))))
 
-(defn var-meta
-  "Returns the meta of the var."
-  [var]
-  (eval `(-> ~var meta)))
-
 (defn resolve-in
   [symbol ns]
   (some
@@ -99,7 +94,7 @@
          :local (gen-local-sym
                   (-> refered-goal meta :ns)
                   (-> refered-goal meta :name str (without-end maker-postfix)))
-         :goal-meta (var-meta refered-goal)}))))
+         :goal-meta (meta refered-goal)}))))
 
 (defn goal-dep-goals
   "Reads the deps from the goal's meta"
@@ -142,17 +137,6 @@
                                                str
                                                (without-end \s)
                                                symbol)))))
-
-(defn param-goals
-  [goal]
-  (let [params (->> goal :goal-meta :params)]
-    (map (partial goal-for-param
-                  (-> goal :goal-meta :ns))
-         params)))
-
-(defn result-goal
-  [goal]
-  (related-goal goal :result))
 
 (def dynamic-selectors (atom {}))
 
@@ -220,7 +204,7 @@
   [state goals]
   (let [log-fn (or (:log-fn state)
                    (constantly nil))]
-    (if-let [goal (first goals)]                     ;;TODO check throughtout the ns for destructuring forms remain
+    (if-let [goal (first goals)]
       (if (-> state :local-env (get (:local goal)))
         (recur state (rest goals))
         (if (-> state :no-circular-dep (get goal))
