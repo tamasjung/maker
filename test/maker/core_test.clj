@@ -163,22 +163,26 @@
     (is (= 'b (make multigoal)))))
 
 ;-------------------------------------------------------------------------------
-
 (declare sc-sel)
 
 (defgoal sc-a
   []
   "a")
 
-(defrel sc-a :case {sc-sel :a})
-
-(defgoal :case {sc-set :b}
+(defgoal sc-a-b
   [sc-a]
   (str sc-a "b"))
+
+(defcase sc-sel sc-a-b)
 
 (defsel sc-sel
   [sc-a input]
   (:type input))
+
+(deftest test-multi-case
+  (is (= (let [input {:type 'sc-a-b}]
+           (make sc-sel))
+         "ab")))
 
 ;-------------------------------------------------------------------------------
 

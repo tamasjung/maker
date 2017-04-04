@@ -36,13 +36,17 @@
   [dep]
   (cond
     (symbol? dep) dep
-    (map? dep) (:as dep)
+    (map? dep) (or (:as dep)
+                   (throw (IllegalArgumentException.
+                            (str "Missing dependency name, you may want to add :as to the parameter destructuring."))))
     (vector? dep) (let [[as whole] (take-last 2 dep)]
-                    (when (and (= :as as)
+                    (if (and (= :as as)
                                (symbol? whole))
-                      whole))
+                      whole
+                      (throw (IllegalArgumentException.
+                               (str "Unrecognized vector param" dep ".")))))
     :default (throw (IllegalArgumentException.
-                      (str "Unrecogonized dependency:" dep ".")))))
+                      (str "Unrecognized dependency:" dep ".")))))
 
 (defn var-meta
   "Returns the meta of the var."
@@ -150,12 +154,24 @@
   [goal]
   (related-goal goal :result))
 
-(defn multi-goal-meta
+(def dynamic-selectors (atom {}))
+
+(defn multi-goal-definition
   [goal]
-  (let [{:keys [selector cases] :as goal-meta}
+  (let [{:keys [selector cases dynamic-selector] :as goal-meta}
         (-> goal :goal-meta)]
-    (when (and selector cases)
-      goal-meta)))
+    (cond
+      (and selector cases (not dynamic-selector))
+      goal-meta
+
+      dynamic-selector
+      {:selector (:local goal)
+       :cases (->> goal
+                   :local
+                   (get @dynamic-selectors)
+                   :cases
+                   (map first))
+       :dynamic-selector true})))
 
 (defn create-maker-state
   [env]
@@ -192,7 +208,10 @@
   (cond
     (-> goal :goal-meta :for) :iterator-collector
     (-> goal :goal-meta :params) :goal-fn
-    (multi-goal-meta goal) :multi
+    (-> goal
+        :goal-meta
+        :dynamic-selector) :dynamic-selector
+    (multi-goal-definition goal) :multi
     :else :default))
 
 (defmulti handle-goal handler-selector)
@@ -201,7 +220,7 @@
   [state goals]
   (let [log-fn (or (:log-fn state)
                    (constantly nil))]
-    (if-let [goal (some-> goals first)]                     ;;TODO check throughtout the ns for destructuring forms remain
+    (if-let [goal (first goals)]                     ;;TODO check throughtout the ns for destructuring forms remain
       (if (-> state :local-env (get (:local goal)))
         (recur state (rest goals))
         (if (-> state :no-circular-dep (get goal))
@@ -240,7 +259,7 @@
 
 (defn multi-maker-call
   [goal cases-states case-goals]
-  (let [{:keys [selector]} (multi-goal-meta goal)]
+  (let [{:keys [selector]} (multi-goal-definition goal)]
     `(case ~selector
        ~@(mapcat
            #(vector (local-dep-symbol %)
@@ -298,7 +317,7 @@
 
 (defmethod handle-goal :multi
   [goal in-state]
-  (let [{:keys [selector cases] :as multi-meta} (multi-goal-meta goal)
+  (let [{:keys [selector cases]} (multi-goal-definition goal)
         goal-ns (-> goal :goal-meta :ns)
         selector-goal (goal-for-param goal-ns selector)
         case-goals (map (partial goal-for-param goal-ns) cases)
@@ -316,7 +335,62 @@
 
         common-set (->> cases-states-list
                         (mapv (comp set :walk-goal-list))
-                        (reduce set/intersection))
+                        (reduce set/intersection #{}))
+        common-walk-list (->> combined-cases-state
+                              :walk-goal-list
+                              (filter common-set))]
+    (-> selector-state
+        (combine-maker-state (-> combined-cases-state
+                                 (assoc :walk-goal-list common-walk-list)))
+        (combine-maker-state
+          {:bindings {goal [(local-dep-symbol goal)
+                            (multi-maker-call goal
+                                              (reduce-kv
+                                                (fn [acc k v]
+                                                  (assoc acc
+                                                    k
+                                                    (update v
+                                                            :walk-goal-list
+                                                            (partial
+                                                              remove
+                                                              common-set))))
+                                                {}
+                                                cases-states)
+                                              case-goals)]}
+           :rev-dep-goals (->> (conj case-goals selector-goal)
+                               (map #(vector % [goal]))
+                               (into {}))
+           :walk-goal-list [goal]
+           :local-env #{(:local goal)}}))))
+
+(defmethod handle-goal :dynamic-selector
+  [goal in-state]
+  (let [{:keys [selector cases]} (multi-goal-definition goal)
+        goal-ns (-> goal :goal-meta :ns)
+        selector-goal (goal-for-param goal-ns selector)
+        case-goals (mapv (partial goal-for-param goal-ns) cases)
+        selector-state (run-on-goals (update in-state
+                                             :no-circular-dep
+                                             disj
+                                             selector-goal)
+                                     [(update selector-goal
+                                                       :goal-meta
+                                                       dissoc
+                                                       :dynamic-selector)])
+        cases-states (->> case-goals
+                          (map #(vector % (run-on-goals
+                                            (assoc selector-state
+                                              :walk-goal-list [])
+                                            [%])))
+                          (into {}))
+
+        cases-states-list (map #(get cases-states %) case-goals)
+        combined-cases-state
+        (reduce combine-maker-state selector-state cases-states-list)
+
+        common-set (->> cases-states-list
+                        (mapv (comp set :walk-goal-list))
+                        (reduce set/intersection #{}))
         common-walk-list (->> combined-cases-state
                               :walk-goal-list
                               (filter common-set))]
@@ -423,33 +497,39 @@
 
 (defmacro defgoal
   [name & fdecl]
-  `(defn ~(-> name
-              (str maker-postfix)
-              symbol)
-     ~@fdecl))
+  (apply list
+         `defn
+         (with-meta (-> name
+                        (str maker-postfix)
+                        symbol)
 
-(def selectors (atom {}))
+                    (meta name))
+         fdecl))
 
 (defmacro defsel
-  [kw args body]
-  (let [cases (get-in @selectors [kw :cases])
-        selector-symbol (-> kw name symbol)]
-    `(do
-       (defn ~selector-symbol [~@args]
-         ~@body)
-       (defrelation selector-symbol :selector selector-symbol :cases [~@cases])
-       (swap! selectors assoc :frozen true))))
+  [sel-name & args]
+  `(defgoal ~(with-meta sel-name {:dynamic-selector true}) ~@args))
 
-(defmacro defcase [case-symbol kw args body]
-  (do
-    (when (-> @selectors
-              kw
-              :frozen)
-      (throw (ex-info (str kw " has already been frozen.") {:case case-symbol})))
-    (let [selector-symbol (-> kw name symbol)]
-      (swap! selectors update-in [kw :cases] (fnil conj []) case-symbol)
-      `(defn ~selector-symbol [~@args]
-         ~@body))))
+(defmacro defcase
+  [selector & [dispatch-val selected-goal]]
+  (let [selector-symbol
+        (cond
+          (symbol? selector)
+          selector
+
+          (keyword? selector)
+          (-> selector name symbol)
+
+          :else
+          (throw (ex-info "defcase's first parameter should be a symbol or a keyword"
+                          {:selector selector})))]
+    (swap! dynamic-selectors
+           update-in
+           [selector-symbol :cases]
+           (fnil conj {})
+           [dispatch-val (or selected-goal
+                             dispatch-val)])
+    nil))
 
 #_(defmacro with
     [pairs & body]
