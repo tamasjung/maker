@@ -1,7 +1,7 @@
 
 [](doc/Cima_da_Conegliano_God_the_Father.jpg)
 
-#maker
+# maker
 
 A Clojure library to explore dependency injection technique in a functional way. 
 
@@ -17,7 +17,7 @@ A Clojure library to explore dependency injection technique in a functional way.
   * a backtrack to OOP
   * a build automation specific tool but probably it would be easy to use for
 
-##Features
+## Features
 
 * dependency tracking by looking for functions based on the parameter names
 * works across namespaces
