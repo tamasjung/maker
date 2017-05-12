@@ -3,36 +3,28 @@
 
 # maker
 
-A Clojure library to explore dependency injection technique in a functional way. 
+A Clojure library to explore inversion of control technique in a functional way. 
 
 * It is 
   * a macro;
   * experimental!!!
   * influenced by
-    * old dependency injection frameworks
+    * dependency injection frameworks
     * goal oriented programming
-    * declerative programming
+    * declarative programming
     * build tools
-* It is not
-  * a backtrack to OOP
-  * a build automation specific tool but probably it would be easy to use for
+    * data flow programming
+    * transducers
 
 ## Features
 
 * dependency tracking by looking for functions based on the parameter names
 * works across namespaces
-* handles 
-  * iterations
-  * conditionals
+
 
 ## Possible future directions
-* other execution plans (the current one is depth-first serial)
-  * for parallel computing 
-  * for asynchronous goals
+* asynchronous goals
 * adoption in ClojureScript
-* configurable mapping from parameter to maker function
-* pluggable extensions
-* special type checker
 
 ## Usage
 ```clj
