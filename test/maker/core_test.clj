@@ -3,7 +3,8 @@
             [maker.core :as m :refer :all]
             [clojure.pprint :refer [pprint]]
             [clojure.string :as string]
-            [ns2 :refer [ns2a*]]))
+            [ns2 :refer [ns2a*]]
+    #_[clojure.core.async :as a]))
 
 ;-------------------------------------------------------------------------------
 
@@ -59,8 +60,9 @@
   (is (= (let [dd 1]
            (make goal-with-dyn-dep))
          11))
+  ;FIXME another ex
   (is (thrown? Throwable
-               (make goal-with-dyn-dep))))
+               (eval '(make goal-with-dyn-dep)))))
 
 ;-------------------------------------------------------------------------------
 
@@ -71,6 +73,8 @@
   (swap! call-counter inc)
   2)
 
+(defgoal? iterator-item)
+
 (defn iterator-items*
   []
   (range 10))
@@ -79,7 +83,11 @@
   [factor iterator-item]
   (* iterator-item factor))
 
-(defrelation collected-items* :for iterator-items)
+(defgoal! collected-items
+  [iterator-items factor]
+  (map (fn [iterator-item]
+         (make collected-item))
+       iterator-items))
 
 (deftest test-static-collectors
   (is (= (last (make collected-items))
@@ -88,13 +96,15 @@
   ;; 'factor' is made in the 'right' place and called only once
   (is (= @call-counter 1)))
 
-(declare ^{:for '[iterator-item iterator-items]
-           :collect 'collected-item}
-         another-collected-items*)
+(defgoal! another-collected-items
+  [iterator-items]
+  (map (fn [iterator-item]
+         (* 2 (make collected-item)))
+       iterator-items))
 
 (deftest test-for-vector
   (is (= (last (make another-collected-items))
-         18)))
+         36)))
 
 ;-------------------------------------------------------------------------------
 
@@ -130,107 +140,8 @@
   [self])
 
 (deftest circular-dep
+  ;FIXME false test method
   (is (thrown? Throwable (eval '(make self)))))
-
-;-------------------------------------------------------------------------------
-
-(defn multi-a*
-  []
-  'a)
-
-(defn bb*
-  []
-  'bb)
-
-(defn multi-b*
-  [bb]
-  'b)
-
-(defn my-selector*
-  [d]
-  (case (:type d)
-    :a 'multi-a
-    :b 'multi-b))
-
-(declare ^{:selector 'my-selector
-           :cases '[multi-a multi-b]}
-         multigoal*)
-
-(deftest test-multi-deps
-  (let [d {:type :a}]
-    (is (= 'a (make multigoal))))
-  (let [d {:type :b}]
-    (is (= 'b (make multigoal)))))
-
-;-------------------------------------------------------------------------------
-
-(defgoal sc-a
-  []
-  "a")
-
-(defgoal sc-a-b
-  [sc-a]
-  (str sc-a "b"))
-
-(defcase sc-sel sc-a-b)
-
-(defsel sc-sel
-  [sc-a input]
-  (:type input))
-
-(deftest test-multi-case
-  (is (= (let [input {:type 'sc-a-b}]
-           (make sc-sel))
-         "ab")))
-
-;-------------------------------------------------------------------------------
-
-(defn not-common*
-  [])
-
-(defn common-g*
-  [])
-
-(defn common-it-g*
-  [m-it])
-
-(defn m-its*
-  []
-  [{:type 'm-aa} {:type 'm-bs}])
-
-(defn m-sel*
-  [m-it]
-  (:type m-it))
-
-(defrelation m :selector m-sel :cases [m-aa m-bs])
-
-(defn m-subits* [])
-
-(defn m-sub*
-  [m-subit])
-
-(defrelation m-subs* :for m-subits)
-
-(defn m-a*
-  [m-it common-g common-it-g not-common m-subit]
-  (assoc m-it :m :a))
-
-(defn m-b*
-  [m-it common-g common-it-g m-subit]
-  (assoc m-it :m :b))
-
-(defrelation m-as* :for m-subits)
-
-(defrelation m-bs* :for m-subits)
-
-(defn m-aa* [m-as])
-
-(declare ^{:for 'm-its} ms*)
-
-(deftest test-iterative-multi
-  (is (= (->> (make ms)
-              count)
-         2)))
 
 ;-------------------------------------------------------------------------------
 
@@ -242,26 +153,35 @@
   [model-one]
   model-one)
 
+(def model-two*)
+(def model-one*)
+
 (defn view-two*
   [model-two]
   (str model-two))
 
-(declare ^{:for 'model-twos} view-twos*)
+(defgoal! view-twos
+  [model-twos]
+  (for [model-two model-twos]
+    (make view-two)))
 
 (defn view-one*
   [view-twos]
   (string/join "-" view-twos))
 
-(declare ^{:for '[model-one model-ones]
-           :collect 'view-one} view-ones*)
+(defgoal! view-ones
+  [model-ones]
+  (map (fn [model-one] (make view-one))
+       model-ones))
 
 (deftest two-levels-iteration-with-metas
   (is (= (make view-ones)
          (list "1-2"
                "3-4"))))
-;; or in shorter way
-(defrelation view-ones*
-  :for model-ones)
+
+(defgoal! view-ones
+            [model-ones]
+            (map (fn [model-one] (*- view-one)) model-ones))
 
 (deftest two-levels-iteration-with-defrel
   (is (= (make view-ones)

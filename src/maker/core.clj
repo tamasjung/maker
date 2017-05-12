@@ -1,5 +1,6 @@
 (ns maker.core
-  (:require [clojure.set :as set]
+  (:require [maker.graph :as graph]
+            [clojure.set :as set]
             [clojure.string :as string]
             [clojure.pprint :refer [pprint]]
             [clojure.walk :as walk]))
@@ -41,7 +42,7 @@
                             (str "Missing dependency name, you may want to add :as to the parameter destructuring."))))
     (vector? dep) (let [[as whole] (take-last 2 dep)]
                     (if (and (= :as as)
-                               (symbol? whole))
+                             (symbol? whole))
                       whole
                       (throw (IllegalArgumentException.
                                (str "Unrecognized vector param" dep ".")))))
@@ -57,7 +58,11 @@
 (defn goal-maker-symbol
   "Calculates the goal maker fn's symbol"
   [goal]
-  (->> goal :goal-meta ((juxt :ns :name)) (string/join "/") symbol))
+  (let [{:keys [ns name]} (:goal-meta goal)]
+    (when name
+      (->> [ns name]
+           (string/join "/")
+           symbol))))
 
 (defn local-dep-symbol
   "Returns the local bind symbol for a dependency"
@@ -75,9 +80,12 @@
         inj-munge
         symbol)))
 
-(defn on-the-fly-goal-decl
+(defn on-the-fly-goal-decl                                  ;TODO remove
   [ns whole-param-name]
-  {:local (gen-local-sym ns whole-param-name)})
+  (let [s (gen-local-sym ns whole-param-name)]
+    {:local s}))
+
+(def on-the-fly? (complement :goal))                        ;TODO remove
 
 (defn goal-for-param
   [ns param]
@@ -89,7 +97,7 @@
                            symbol
                            (resolve-in ns))]
       (if-not refered-goal
-        (on-the-fly-goal-decl ns whole-p)
+        (on-the-fly-goal-decl ns whole-p)                   ;TODO remove, throw ex
         {:goal refered-goal
          :local (gen-local-sym
                   (-> refered-goal meta :ns)
@@ -105,57 +113,6 @@
          :arglists
          first
          (map (partial goal-for-param ns)))))
-
-(defn related-goal
-  [ref-goal key-fn]
-  (->> ref-goal :goal-meta key-fn
-       (goal-for-param (-> ref-goal :goal-meta :ns))))
-
-(defn collected-goal
-  [goal]
-  (related-goal goal #(or (:collect %)
-                          (-> %
-                              :name
-                              str
-                              (without-end \*)
-                              (without-end \s)
-                              symbol))))
-
-(defn iteration-goal
-  [goal]
-  (related-goal goal #(when-let [for-val (:for %)]
-                       (cond
-                         (vector? for-val) (second for-val)
-                         (symbol? for-val) for-val))))
-
-(defn item-goal
-  [goal]
-  (related-goal goal #(when-let [for-val (:for %)]
-                       (cond
-                         (vector? for-val) (first for-val)
-                         (symbol? for-val) (-> for-val
-                                               str
-                                               (without-end \s)
-                                               symbol)))))
-
-(def dynamic-selectors (atom {}))
-
-(defn multi-goal-definition
-  [goal]
-  (let [{:keys [selector cases dynamic-selector] :as goal-meta}
-        (-> goal :goal-meta)]
-    (cond
-      (and selector cases (not dynamic-selector))
-      goal-meta
-
-      dynamic-selector
-      {:selector (:local goal)
-       :cases (->> goal
-                   :local
-                   (get @dynamic-selectors)
-                   :cases
-                   (map first))
-       :dynamic-selector true})))
 
 (defn create-maker-state
   [env]
@@ -187,18 +144,7 @@
            [:walk-goal-list (comp distinct concat) []]
            [:log-fn #(or %1 %2) nil]]))
 
-(defn handler-selector
-  [goal _]
-  (cond
-    (-> goal :goal-meta :for) :iterator-collector
-    (-> goal :goal-meta :params) :goal-fn
-    (-> goal
-        :goal-meta
-        :dynamic-selector) :dynamic-selector
-    (multi-goal-definition goal) :multi
-    :else :default))
-
-(defmulti handle-goal handler-selector)
+(declare handle-goal)
 
 (defn run-on-goals
   [state goals]
@@ -229,28 +175,14 @@
 
 (declare make-internal)
 
-(defn collector-maker-call
-  [goal state item-goal-list]
-  (assert (= 1 (count item-goal-list)))
-  (let [collected (collected-goal goal)]
-    `(for [~(->> item-goal-list first local-dep-symbol)
-           ~(-> goal iteration-goal local-dep-symbol)]
-       ~(make-internal state collected))))
-
 (defn goal-maker-call
   [goal goal-deps]
-  `(~(goal-maker-symbol goal) ~@(map local-dep-symbol goal-deps)))
+  `(~(or (goal-maker-symbol goal)
+         #_ "FIXME"
+         #_(throw (ex-info "Missing goal definition" {:goal goal})))
+     ~@(map local-dep-symbol goal-deps)))
 
-(defn multi-maker-call
-  [goal cases-states case-goals]
-  (let [{:keys [selector]} (multi-goal-definition goal)]
-    `(case ~selector
-       ~@(mapcat
-           #(vector (local-dep-symbol %)
-                    (make-internal (get cases-states %) %))
-           case-goals))))
-
-(defn dependants
+(defn dependants-set
   [{:keys [rev-dep-goals]} item-goal-list]
   (letfn [(add-dependants [result dep-goal]
             (->> dep-goal
@@ -259,150 +191,7 @@
                  (reduce into #{dep-goal})))]
     (reduce add-dependants #{} item-goal-list)))
 
-(defmethod handle-goal :iterator-collector
-  [goal in-state]
-  (let [item-goal (item-goal goal)
-        new-item-list [item-goal]
-        up-state (-> in-state
-                     (run-on-goals [(iteration-goal goal)])
-                     (combine-maker-state
-                       {:local-env #{(:local item-goal)}}))
-        collected-state (run-on-goals
-                          (assoc up-state :walk-goal-list [])
-                          [(collected-goal goal)])
-        local-dependants (dependants collected-state new-item-list)
-        non-local-dependants (remove local-dependants
-                                     (:walk-goal-list collected-state))
-        collector-maker (collector-maker-call
-                          goal
-                          (-> collected-state
-                              (update :walk-goal-list
-                                      #(filter local-dependants %)))
-                          new-item-list)
-        dep-goals (reduce into [] [[(iteration-goal goal)]
-                                   non-local-dependants])
-        result-state
-        (-> collected-state
-            (assoc :local-env (:local-env up-state))
-            (assoc :walk-goal-list (concat (:walk-goal-list up-state)
-                                           non-local-dependants))
-            (update :local-env into (set/difference (:local-env collected-state)
-                                                    (->> local-dependants
-                                                         (map :local)
-                                                         set))))]
-    (combine-maker-state
-      result-state
-      {:bindings {goal [(local-dep-symbol goal) collector-maker]}
-       :walk-goal-list [goal]
-       :rev-dep-goals (->> dep-goals
-                           (map #(vector % [goal]))
-                           (into {}))
-       :local-env #{(:local goal)}})))
-
-(defmethod handle-goal :multi
-  [goal in-state]
-  (let [{:keys [selector cases]} (multi-goal-definition goal)
-        goal-ns (-> goal :goal-meta :ns)
-        selector-goal (goal-for-param goal-ns selector)
-        case-goals (map (partial goal-for-param goal-ns) cases)
-        selector-state (run-on-goals in-state [selector-goal])
-        cases-states (->> case-goals
-                          (map #(vector % (run-on-goals
-                                            (assoc selector-state
-                                              :walk-goal-list [])
-                                            [%])))
-                          (into {}))
-
-        cases-states-list (map #(get cases-states %) case-goals)
-        combined-cases-state
-        (reduce combine-maker-state selector-state cases-states-list)
-
-        common-set (->> cases-states-list
-                        (mapv (comp set :walk-goal-list))
-                        (reduce set/intersection #{}))
-        common-walk-list (->> combined-cases-state
-                              :walk-goal-list
-                              (filter common-set))]
-    (-> selector-state
-        (combine-maker-state (-> combined-cases-state
-                                 (assoc :walk-goal-list common-walk-list)))
-        (combine-maker-state
-          {:bindings {goal [(local-dep-symbol goal)
-                            (multi-maker-call goal
-                                              (reduce-kv
-                                                (fn [acc k v]
-                                                  (assoc acc
-                                                    k
-                                                    (update v
-                                                            :walk-goal-list
-                                                            (partial
-                                                              remove
-                                                              common-set))))
-                                                {}
-                                                cases-states)
-                                              case-goals)]}
-           :rev-dep-goals (->> (conj case-goals selector-goal)
-                               (map #(vector % [goal]))
-                               (into {}))
-           :walk-goal-list [goal]
-           :local-env #{(:local goal)}}))))
-
-(defmethod handle-goal :dynamic-selector
-  [goal in-state]
-  (let [{:keys [selector cases]} (multi-goal-definition goal)
-        goal-ns (-> goal :goal-meta :ns)
-        selector-goal (goal-for-param goal-ns selector)
-        case-goals (mapv (partial goal-for-param goal-ns) cases)
-        selector-state (run-on-goals (update in-state
-                                             :no-circular-dep
-                                             disj
-                                             selector-goal)
-                                     [(update selector-goal
-                                                       :goal-meta
-                                                       dissoc
-                                                       :dynamic-selector)])
-        cases-states (->> case-goals
-                          (map #(vector % (run-on-goals
-                                            (assoc selector-state
-                                              :walk-goal-list [])
-                                            [%])))
-                          (into {}))
-
-        cases-states-list (map #(get cases-states %) case-goals)
-        combined-cases-state
-        (reduce combine-maker-state selector-state cases-states-list)
-
-        common-set (->> cases-states-list
-                        (mapv (comp set :walk-goal-list))
-                        (reduce set/intersection #{}))
-        common-walk-list (->> combined-cases-state
-                              :walk-goal-list
-                              (filter common-set))]
-    (-> selector-state
-        (combine-maker-state (-> combined-cases-state
-                                 (assoc :walk-goal-list common-walk-list)))
-        (combine-maker-state
-          {:bindings {goal [(local-dep-symbol goal)
-                            (multi-maker-call goal
-                                              (reduce-kv
-                                                (fn [acc k v]
-                                                  (assoc acc
-                                                    k
-                                                    (update v
-                                                            :walk-goal-list
-                                                            (partial
-                                                              remove
-                                                              common-set))))
-                                                {}
-                                                cases-states)
-                                              case-goals)]}
-           :rev-dep-goals (->> (conj case-goals selector-goal)
-                               (map #(vector % [goal]))
-                               (into {}))
-           :walk-goal-list [goal]
-           :local-env #{(:local goal)}}))))
-
-(defmethod handle-goal :default
+(defn handle-goal
   [goal in-state]
   (let [dep-goals (goal-dep-goals goal)
         dependencies-state (run-on-goals in-state dep-goals)]
@@ -429,23 +218,45 @@
   (->> form
        (walk/postwalk
          (fn [s]
-           (cond
-             (symbol? s)
+           (if (symbol? s)
              (-> s
                  str
                  (string/replace #"^clojure.core/" "")
                  symbol)
 
-             :default s)))
+             s)))
        pprint)
   form)
+
+(def ^:dynamic *non-local-deps* nil)
+
+(defn local-dependants
+  [state env ns]
+  (let [local-goals (->> env
+                         keys
+                         (map (partial goal-for-param ns))
+                         (remove on-the-fly?))]
+    (dependants-set state local-goals)))
+
+(defn collect-non-local-deps!
+  [env ns {:keys [rev-dep-goals] :as state} goal]
+  (when *non-local-deps*
+    (let [local-dependants (local-dependants state env ns)
+          minimal-non-local-goal-set
+          ((graph/border-fn goal-dep-goals
+                            (complement local-dependants))
+            goal)]
+      (set! *non-local-deps*
+            (into *non-local-deps* minimal-non-local-goal-set)))))
 
 (defmacro make-with
   "Make a goal out of the environment"
   [goal-sym env log-fn]
   (let [state (-> env keys set create-maker-state (assoc :log-fn log-fn))
-        goal (goal-for-param *ns* goal-sym)]
-    (-> (run-on-goals state [goal])
+        goal (goal-for-param *ns* goal-sym)
+        end-state (run-on-goals state [goal])]
+    (collect-non-local-deps! env *ns* end-state goal)
+    (-> end-state
         (make-internal goal)
         (cond->
           log-fn print-generated-code))))
@@ -472,6 +283,7 @@
 
 (def #^{:macro true} pp*- #'pp-make)
 
+#_
 (defmacro defrelation
   [name & {:as relations}]
   (list `declare (with-meta name
@@ -479,41 +291,34 @@
                                   (for [[k v] relations]
                                     [k `(quote ~v)])))))
 
+(defn with-goal-meta
+  [name]
+  (with-meta (-> name
+                 (str maker-postfix)
+                 symbol)
+             (meta name)))
+
 (defmacro defgoal
   [name & fdecl]
   (apply list
          `defn
-         (with-meta (-> name
-                        (str maker-postfix)
-                        symbol)
-
-                    (meta name))
+         (with-goal-meta name)
          fdecl))
 
-(defmacro defsel
-  [sel-name & args]
-  `(defgoal ~(with-meta sel-name {:dynamic-selector true}) ~@args))
+(defmacro defgoal!
+  [name & fdecl]
+  (let [additional-params
+        (binding [*non-local-deps* []]
+          (eval (apply list 'defgoal name fdecl))
+          (->> *non-local-deps*
+               (map :local)
+               vec))]
+    (apply list 'defgoal name (into additional-params (first fdecl))
+           (rest fdecl))))
 
-(defmacro defcase
-  [selector & [dispatch-val selected-goal]]
-  (let [selector-symbol
-        (cond
-          (symbol? selector)
-          selector
-
-          (keyword? selector)
-          (-> selector name symbol)
-
-          :else
-          (throw (ex-info "defcase's first parameter should be a symbol or a keyword"
-                          {:selector selector})))]
-    (swap! dynamic-selectors
-           update-in
-           [selector-symbol :cases]
-           (fnil conj {})
-           [dispatch-val (or selected-goal
-                             dispatch-val)])
-    nil))
+(defmacro defgoal?
+  [name]
+  (list 'declare (with-goal-meta name)))
 
 #_(defmacro with
     [pairs & body]

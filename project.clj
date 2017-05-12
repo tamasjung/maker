@@ -4,4 +4,6 @@
   :license {:name "MIT License"
             :url "http://opensource.org/licenses/MIT"}
   :dependencies [[org.clojure/clojure "1.8.0"]]
-  :source-paths ["src"])
+  :source-paths ["src"]
+  :profiles {:dev {:dependencies [#_[org.clojure/core.async "0.3.442"]
+                                  [criterium "0.4.4"]]}})
