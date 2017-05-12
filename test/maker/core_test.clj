@@ -145,15 +145,15 @@
 
 ;-------------------------------------------------------------------------------
 
-(defn model-ones*
+(defgoal model-ones
   []
   [[1 2] [3 4]])
 
-(defn model-twos*
+(defgoal model-twos
   [model-one]
   model-one)
 
-(def model-two*)
+(defgoal? model-two)
 (def model-one*)
 
 (defn view-two*
@@ -165,13 +165,13 @@
   (for [model-two model-twos]
     (make view-two)))
 
-(defn view-one*
+(defgoal view-one
   [view-twos]
   (string/join "-" view-twos))
 
 (defgoal! view-ones
   [model-ones]
-  (map (fn [model-one] (make view-one))
+  (map (fn [model-one] (*- view-one))
        model-ones))
 
 (deftest two-levels-iteration-with-metas
