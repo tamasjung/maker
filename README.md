@@ -28,7 +28,7 @@ A Clojure library to explore inversion of control technique in a functional way.
 
 ## Usage
 ```clj
-[maker "0.1.2"]
+[maker "1.0.0"]
 ```
 [See the tests](test/maker/core_test.clj)
 
