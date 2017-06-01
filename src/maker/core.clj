@@ -444,12 +444,15 @@
   (if (instance? Throwable in)
     (throw (RuntimeException. in))
     in))
-#_(defmacro with
-    [pairs & body]
-    (assert (-> pairs count even?))
-    `(let [~@(->> pairs
-                  (partition 2)
-                  (map (juxt (comp local-dep-symbol)
-                             second))
-                  (reduce into []))]
-       ~@body))
+
+(defmacro with-goals
+  [pairs & body]
+  (assert (-> pairs count even?))
+  `(let [~@(->> pairs
+                (partition 2)
+                (map (juxt (comp local-dep-symbol
+                                 (partial goal-param-goal-map *ns*)
+                                 first)
+                           second))
+                (reduce into []))]
+     ~@body))

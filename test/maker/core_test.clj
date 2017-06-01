@@ -4,6 +4,7 @@
             [clojure.pprint :refer [pprint]]
             [clojure.string :as string]
             [ns2 :refer [ns2a*]]
+            [ns1 :refer [ns1a*]]
             [clojure.core.async :as a]))
 
 ;-------------------------------------------------------------------------------
@@ -59,7 +60,9 @@
 (deftest test-across-nss
   ;; for external namespaces maker munges the binding names,
   ;; check it with macroexpansion
-  (is (= 222 (make ns2a))))
+  (is (= 222 (make ns2a)))
+  (is (= 22 (with-goals [ns1a 11]
+              (make ns2a)))))
 
 ;-------------------------------------------------------------------------------
 
@@ -70,7 +73,10 @@
 (deftest test-dynamic-goal
   (is (= (let [dd 1]
            (make goal-with-dyn-dep))
-         11)))
+         11))
+  (is (= (with-goals [dd 2]
+           (make goal-with-dyn-dep))
+         12)))
 
 ;-------------------------------------------------------------------------------
 
@@ -148,12 +154,13 @@
 
 ;; circular dependency is an error at compile time
 
-(defn self*
-  [self])
 
 (deftest circular-dep
   ;FIXME false test method
-  (is (thrown? Throwable (eval '(make self)))))
+  (is (thrown? Throwable (eval '(do
+                                  (defn self*
+                                    [self])
+                                  (make self))))))
 
 ;-------------------------------------------------------------------------------
 
@@ -292,4 +299,3 @@
                (make<> a)))
     (catch clojure.lang.ExceptionInfo ei
       (is (-> ei ex-data :goal-var :goal-local (= 'b))))))
-
