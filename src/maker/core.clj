@@ -3,7 +3,8 @@
             [clojure.set :as set]
             [clojure.string :as string]
             [clojure.pprint :refer [pprint]]
-            [clojure.walk :as walk]))
+            [clojure.walk :as walk]
+            [clojure.core.async :as a]))
 
 (defn inj-munge
   "Injective munge"
@@ -16,6 +17,8 @@
       (string/replace "." "_")))
 
 (def maker-postfix \*)
+
+(def async-callbacks ['yield])
 
 (defn but-last-char
   [s]
@@ -57,8 +60,8 @@
 
 (defn goal-maker-symbol
   "Calculates the goal maker fn's symbol"
-  [goal]
-  (let [{:keys [ns name]} (:goal-meta goal)]
+  [goal-map]
+  (let [{:keys [ns name]} (:goal-meta goal-map)]
     (when name
       (->> [ns name]
            (string/join "/")
@@ -66,59 +69,65 @@
 
 (defn local-dep-symbol
   "Returns the local bind symbol for a dependency"
-  [goal]
-  (:local goal))
+  [goal-map]
+  (:goal-local goal-map))
 
-(defn gen-local-sym
+(def ^:dynamic *maker-ns* nil)
+
+(defn goal-param-goal-local
   [ns name]
-  (if (= *ns* ns)
-    (if (symbol? name)
-      name
-      (symbol name))
-    (-> [ns name]
-        (->> (string/join "/"))
-        inj-munge
-        symbol)))
+  (let [context-ns (or *maker-ns* *ns*)]
+    (if (= context-ns ns)
+      (if (symbol? name)
+        name
+        (symbol name))
+      (-> [ns name]
+          (->> (string/join "/"))
+          inj-munge
+          symbol))))
 
 (defn on-the-fly-goal-decl                                  ;TODO remove
   [ns whole-param-name]
-  (let [s (gen-local-sym ns whole-param-name)]
-    {:local s}))
+  (let [s (goal-param-goal-local ns whole-param-name)]
+    {:goal-local s}))
 
-(def on-the-fly? (complement :goal))                        ;TODO remove
+(def on-the-fly? (complement :goal-var))                    ;TODO remove
 
-(defn goal-for-param
-  [ns param]
-  (when param
-    (let [whole-p (whole-param param)
+(defn goal-param-goal-map
+  [ns goal-param]
+  (when goal-param
+    (let [whole-p (whole-param goal-param)
           refered-goal-name (-> whole-p
                                 (str maker-postfix))
-          refered-goal (-> refered-goal-name
-                           symbol
-                           (resolve-in ns))]
-      (if-not refered-goal
+          goal-var (-> refered-goal-name
+                       symbol
+                       (resolve-in ns))]
+      (if-not goal-var
         (on-the-fly-goal-decl ns whole-p)                   ;TODO remove, throw ex
-        {:goal refered-goal
-         :local (gen-local-sym
-                  (-> refered-goal meta :ns)
-                  (-> refered-goal meta :name str (without-end maker-postfix)))
-         :goal-meta (meta refered-goal)}))))
+        {:goal-var goal-var
+         :goal-local (goal-param-goal-local
+                       (-> goal-var meta :ns)
+                       (-> goal-var meta :name str (without-end maker-postfix)))
+         :goal-meta (meta goal-var)}))))
 
-(defn goal-dep-goals
+(defn goal-map-dep-goal-maps
   "Reads the deps from the goal's meta"
-  [goal]
-  (let [g-meta (:goal-meta goal)
+  [goal-map]
+  (let [g-meta (:goal-meta goal-map)
         ns (-> g-meta :ns)]
     (->> g-meta
          :arglists
          first
-         (map (partial goal-for-param ns)))))
+         (#(if (-> goal-map :goal-meta ::async-goal-callback)
+             (drop (count async-callbacks) %)
+             %))
+         (map (partial goal-param-goal-map ns)))))
 
 (defn create-maker-state
   [env]
   {:bindings {}
    :local-env (or env #{})
-   :no-circular-dep #{}
+   :circular-dep #{}
    :walk-goal-list []
    :rev-dep-goals {}})
 
@@ -140,46 +149,37 @@
           [[:bindings merge {}]
            [:rev-dep-goals combine-items {}]
            [:local-env into #{}]
-           [:no-circular-dep into #{}]
-           [:walk-goal-list (comp distinct concat) []]
-           [:log-fn #(or %1 %2) nil]]))
+           [:circular-dep into #{}]
+           [:walk-goal-list (comp distinct concat) []]]))
 
 (declare handle-goal)
 
 (defn run-on-goals
   [state goals]
-  (let [log-fn (or (:log-fn state)
-                   (constantly nil))]
-    (if-let [goal (first goals)]
-      (if (-> state :local-env (get (:local goal)))
-        (recur state (rest goals))
-        (if (-> state :no-circular-dep (get goal))
-          (throw (IllegalStateException.
-                   (str "Circural dependency:"
-                        goal
-                        ", walk-path:"
-                        (:walk-goal-list state))))
-          (do
-            (log-fn goal "==>" state)
-            (let [res
-                  (update
-                    (run-on-goals
-                      (handle-goal
-                        goal
-                        (update state :no-circular-dep conj goal))
-                      (rest goals))
-                    :no-circular-dep disj goal)]
-              (log-fn goal "<==" res)
-              res))))
-      state)))
+  (if-let [goal (first goals)]
+    (if (-> state :local-env (get (:goal-local goal)))
+      (recur state (rest goals))
+      (if (-> state :circular-dep (get goal))
+        (throw (IllegalStateException.
+                 (str "Circural dependency:"
+                      goal
+                      ", walk-path:"
+                      (:walk-goal-list state))))
+        (update (run-on-goals
+                  (handle-goal
+                    goal
+                    (update state :circular-dep conj goal))
+                  (rest goals))
+                :circular-dep disj goal)))
+    state))
 
 (declare make-internal)
 
 (defn goal-maker-call
   [goal goal-deps]
   `(~(or (goal-maker-symbol goal)
-         #_ "FIXME"
-         #_(throw (ex-info "Missing goal definition" {:goal goal})))
+         #_"FIXME"
+         #_(throw (ex-info "Missing goal definition" {:goal-var goal})))
      ~@(map local-dep-symbol goal-deps)))
 
 (defn dependants-set
@@ -193,7 +193,7 @@
 
 (defn handle-goal
   [goal in-state]
-  (let [dep-goals (goal-dep-goals goal)
+  (let [dep-goals (goal-map-dep-goal-maps goal)
         dependencies-state (run-on-goals in-state dep-goals)]
     (-> dependencies-state
         (combine-maker-state
@@ -203,7 +203,7 @@
                                (map #(vector % [goal]))
                                (into {}))
            :walk-goal-list [goal]
-           :local-env #{(:local goal)}}))))
+           :local-env #{(:goal-local goal)}}))))
 
 (defn make-internal
   [{:keys [walk-goal-list bindings] :as _state} goal]
@@ -213,28 +213,13 @@
                 (reduce into []))]
      ~(local-dep-symbol goal)))
 
-(defn print-generated-code
-  [form]
-  (->> form
-       (walk/postwalk
-         (fn [s]
-           (if (symbol? s)
-             (-> s
-                 str
-                 (string/replace #"^clojure.core/" "")
-                 symbol)
-
-             s)))
-       pprint)
-  form)
-
 (def ^:dynamic *non-local-deps* nil)
 
 (defn local-dependants
   [state env ns]
   (let [local-goals (->> env
                          keys
-                         (map (partial goal-for-param ns))
+                         (map (partial goal-param-goal-map ns))
                          (remove on-the-fly?))]
     (dependants-set state local-goals)))
 
@@ -243,53 +228,34 @@
   (when *non-local-deps*
     (let [local-dependants (local-dependants state env ns)
           minimal-non-local-goal-set
-          ((graph/border-fn goal-dep-goals
+          ((graph/border-fn goal-map-dep-goal-maps
                             (complement local-dependants))
             goal)]
       (set! *non-local-deps*
             (into *non-local-deps* minimal-non-local-goal-set)))))
 
+(defn discover-dependencies
+  [env goal]
+  (-> env
+      keys
+      set
+      create-maker-state
+      (run-on-goals [goal])))
+
 (defmacro make-with
   "Make a goal out of the environment"
-  [goal-sym env log-fn]
-  (let [state (-> env keys set create-maker-state (assoc :log-fn log-fn))
-        goal (goal-for-param *ns* goal-sym)
-        end-state (run-on-goals state [goal])]
+  [goal-sym env]
+  (let [goal (goal-param-goal-map *ns* goal-sym)
+        end-state (discover-dependencies env goal)]
     (collect-non-local-deps! env *ns* end-state goal)
     (-> end-state
-        (make-internal goal)
-        (cond->
-          log-fn print-generated-code))))
+        (make-internal goal))))
 
 (defmacro make
   [goal]
-  `(make-with ~goal ~&env nil))
+  `(make-with ~goal ~&env))
 
 (def #^{:macro true} *- #'make)
-
-(defn log-fn
-  [& args]
-  (pprint (->> args
-               (map #(if (map? %)
-                      (dissoc % :log-fn :bindings)
-                      %))
-               vec)))
-
-(defmacro pp-make
-  [goal & [user-log-fn]]
-  `(make-with ~goal ~&env ~(or (and user-log-fn
-                                    (eval user-log-fn))
-                               log-fn)))
-
-(def #^{:macro true} pp*- #'pp-make)
-
-#_
-(defmacro defrelation
-  [name & {:as relations}]
-  (list `declare (with-meta name
-                            (into {}
-                                  (for [[k v] relations]
-                                    [k `(quote ~v)])))))
 
 (defn with-goal-meta
   [name]
@@ -298,28 +264,187 @@
                  symbol)
              (meta name)))
 
+(defn params-fn
+  [f [first-param second-param :as fdecl]]
+  (if (string? first-param)
+    (apply list first-param (f second-param) (rest (rest fdecl)))
+    (apply list (f first-param) (rest fdecl))))
+
+(defn first-param
+  [fdecl]
+  (if (-> fdecl first string?)
+    (fnext fdecl)
+    (ffirst fdecl)))
+
 (defmacro defgoal
   [name & fdecl]
-  (apply list
-         `defn
-         (with-goal-meta name)
-         fdecl))
-
-(defmacro defgoal!
-  [name & fdecl]
-  (let [additional-params
-        (binding [*non-local-deps* []]
-          (eval (apply list 'defgoal name fdecl))
-          (->> *non-local-deps*
-               (map :local)
-               vec))]
-    (apply list 'defgoal name (into additional-params (first fdecl))
-           (rest fdecl))))
+  (if (-> fdecl first-param (= '?))
+    (let [additional-params
+          (binding [*non-local-deps* []]
+            (eval (apply list 'defn name fdecl))
+            (->> *non-local-deps*
+                 (map :goal-local)
+                 vec))]
+      (apply list
+             'defn
+             (with-goal-meta name)
+             (params-fn (comp #(into additional-params %)
+                              rest)
+                        fdecl)))
+    (apply list
+           `defn
+           (with-goal-meta name)
+           (params-fn identity
+                      fdecl))))
 
 (defmacro defgoal?
   [name]
   (list 'declare (with-goal-meta name)))
 
+(defmacro defgoal<-
+  [name & fdecl]
+  (do
+    (apply list 'defgoal (vary-meta name merge {::async-goal-callback true})
+           (params-fn #(into async-callbacks %)
+                      fdecl))))
+
+(defmacro defgoal<>
+  [name & fdecl]
+  (do
+    (apply list 'defgoal (vary-meta name merge {::async-goal-channel true})
+           (params-fn identity
+                      fdecl))))
+
+(defn value-of-goal
+  [ctx goal-map]
+  (get-in ctx [:values (:goal-local goal-map)]))
+
+(defn goal-value-exists?
+  [values goal-map]
+  (contains? values (:goal-local goal-map)))
+
+(declare execute-goal)
+
+(defn distribute-goal-val
+  [ctx-atom goal-map goal-val]
+  (locking ctx-atom
+    (let [ctx @ctx-atom]
+      (binding [*maker-ns* (:ns ctx)]
+        (doseq [goal-map-to-run
+                (->> (-> ctx :graph :rev-dep-goals (get goal-map))
+                     (filter #(->> %
+                                   goal-map-dep-goal-maps
+                                   (every? (partial goal-value-exists?
+                                                    (:values ctx))))))]
+          (execute-goal ctx-atom goal-map-to-run))))))
+
+(defn receive-goal
+  [ctx-atom goal-map goal-val]
+  (swap! ctx-atom
+         (fn [ctx]
+           (if (and (-> ctx
+                        :values
+                        (contains? (:goal-local goal-map)))
+                    (not ((@ctx-atom :used-from-env) (:goal-local goal-map))))
+             (throw (ex-info "yield called twice" {:goal-map goal-map}))
+             (assoc-in ctx [:values (:goal-local goal-map)] goal-val))))
+  (distribute-goal-val ctx-atom goal-map goal-val))
+
+(defn receive-goal-error
+  [ctx-atom goal err]
+  ;FIXME store special delay
+  (prn "receive error" goal err)
+  (.printStackTrace err)
+  (throw (ex-info "receive goal err" {:error err})))
+
+(defn execute-goal
+  [ctx-atom goal-map]
+  (let [error-fn (partial receive-goal-error ctx-atom goal-map)] ;FIXME remove
+    (binding [*maker-ns* (:ns @ctx-atom)]
+      (future
+        (try
+          (let [deps (->> goal-map
+                          goal-map-dep-goal-maps
+                          (map (partial value-of-goal @ctx-atom)))
+                yield-fn (if (-> @ctx-atom :goal-map (= goal-map))
+                           (fn _put-result
+                             [v] (-> @ctx-atom
+                                     :result
+                                     (a/put! v)))
+                           (partial receive-goal ctx-atom goal-map))]
+            (let [meta (-> goal-map :goal-meta)]
+              (cond
+                (::async-goal-channel meta)
+                (a/go (-> goal-map
+                          :goal-var
+                          (apply deps)
+                          (a/<!)
+                          yield-fn))
+
+                (::async-goal-callback meta)
+                (apply (:goal-var goal-map) (into [yield-fn] deps))
+
+                :default
+                (yield-fn (apply (:goal-var goal-map) deps)))))
+          (catch Throwable th
+            (.printStackTrace th)                           ;FIXME remove
+            (error-fn th)))))))
+
+(def contextes (atom {}))
+
+(defn run-make<>
+  [goal-param ctx-id env-bindings]
+  (let [result (a/chan 1)
+        ctx-atom (atom @(get @contextes ctx-id))            ;clone compile time context
+        used-from-env (:used-from-env @ctx-atom)]
+    (swap! ctx-atom assoc :result result)
+    (doseq [goal-map (:starters @ctx-atom)]
+      (execute-goal ctx-atom goal-map))
+    (doseq [[local val] env-bindings]
+      (receive-goal ctx-atom (get used-from-env local) val))
+    result))
+
+(defmacro make<>
+  ([goal-param]
+   (let [goal-map (goal-param-goal-map *ns* goal-param)
+         graph (discover-dependencies &env goal-map)
+         env (or &env {})
+         used-from-env (->> graph
+                            :walk-goal-list
+                            (mapcat goal-map-dep-goal-maps)
+                            (filter (comp env :goal-local))
+                            distinct
+                            (remove (comp (set async-callbacks)
+                                          :goal-local))
+                            (map (juxt :goal-local identity))
+                            (into {}))
+         starters (->> graph
+                       :walk-goal-list
+                       (filter #(when (contains? (-> % :goal-meta) :arglists)
+                                  (let [arglists (-> % :goal-meta :arglists)]
+                                    (and (= 1 (count arglists))
+                                         (-> arglists first empty?))))))
+         ctx-id (gensym goal-param)]
+     (swap! contextes assoc ctx-id
+            (atom {:ns *ns*
+                   :graph graph
+                   :starters starters
+                   :used-from-env used-from-env
+                   :goal-map goal-map}))
+     `(run-make<> ~(list 'quote goal-param)
+                  ~(list 'quote ctx-id)
+                  ~(->> used-from-env
+                        (map (comp first))
+                        (map #(vector (list 'quote %)
+                                      %))
+                        vec)))))
+
+(defn th
+  "Throw throwable, return param otherwise."
+  [in]
+  (if (instance? Throwable in)
+    (throw (RuntimeException. in))
+    in))
 #_(defmacro with
     [pairs & body]
     (assert (-> pairs count even?))

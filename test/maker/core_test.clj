@@ -4,7 +4,7 @@
             [clojure.pprint :refer [pprint]]
             [clojure.string :as string]
             [ns2 :refer [ns2a*]]
-    #_[clojure.core.async :as a]))
+            [clojure.core.async :as a]))
 
 ;-------------------------------------------------------------------------------
 
@@ -16,15 +16,22 @@
 
 ;-------------------------------------------------------------------------------
 
-(defn d* [] 5)
+(defn simple*
+  []
+  "simple")
 
-;; d is called a 'goal'
-;; d* is the 'maker function
+;; simple is called a 'goal'
+;; simple* is the 'maker function
 
-(deftest simple-goal
-  (is (= 5 (make d))))
+(deftest test-simple
+  (is (= "simple"
+         ;let's make the goal
+         (make simple)
+         ;the make macro expands to
+         (let [simple (simple*)]
+           simple))))
 
-(defn three-times* [d] (* 3 d))
+(defn aa* [d] (* 3 d))
 
 ;; three-times depends on d above
 
@@ -53,6 +60,8 @@
   (is (= 222 (make ns2a))))
 
 ;-------------------------------------------------------------------------------
+
+(declare dd*)
 
 (defn goal-with-dyn-dep* [dd] (+ 10 dd))
 
@@ -83,8 +92,9 @@
   [factor iterator-item]
   (* iterator-item factor))
 
-(defgoal! collected-items
-  [iterator-items factor]
+
+(defgoal collected-items
+  [? iterator-items]
   (map (fn [iterator-item]
          (make collected-item))
        iterator-items))
@@ -96,8 +106,8 @@
   ;; 'factor' is made in the 'right' place and called only once
   (is (= @call-counter 1)))
 
-(defgoal! another-collected-items
-  [iterator-items]
+(defgoal another-collected-items
+  [? iterator-items]
   (map (fn [iterator-item]
          (* 2 (make collected-item)))
        iterator-items))
@@ -126,6 +136,9 @@
   [{:keys [a b] :as dm} [c :as dv]]
   (list a b dm c dv))
 
+(defgoal? dm)
+(defgoal? dv)
+
 (deftest test-d-destr
   (is (= (let [dm {:a 111 :b 222}
                dv [1 2]]
@@ -145,6 +158,7 @@
 
 ;-------------------------------------------------------------------------------
 
+
 (defgoal model-ones
   []
   [[1 2] [3 4]])
@@ -154,36 +168,83 @@
   model-one)
 
 (defgoal? model-two)
-(def model-one*)
+(declare model-one*)
 
 (defn view-two*
   [model-two]
   (str model-two))
 
-(defgoal! view-twos
+(defgoal view-twos
   [model-twos]
   (for [model-two model-twos]
     (make view-two)))
 
+(defgoal view-one-factor
+  [])
+
 (defgoal view-one
-  [view-twos]
+  [view-twos view-one-factor]
   (string/join "-" view-twos))
 
-(defgoal! view-ones
-  [model-ones]
+(defgoal view-ones
+  [? model-ones]
   (map (fn [model-one] (*- view-one))
        model-ones))
 
-(deftest two-levels-iteration-with-metas
+(deftest two-levels-iteration
   (is (= (make view-ones)
          (list "1-2"
                "3-4"))))
 
-(defgoal! view-ones
-            [model-ones]
-            (map (fn [model-one] (*- view-one)) model-ones))
+;-------------------------------------------------------------------------------
 
-(deftest two-levels-iteration-with-defrel
-  (is (= (make view-ones)
-         (list "1-2"
-               "3-4"))))
+(defgoal? n)
+
+(defgoal<> urls
+  [n]
+  (let [res (a/promise-chan) #_(a/chan 1)]
+    (future
+      (try
+        (->> (range n)
+             (map (partial str "url"))
+             (a/put! res))
+        (catch Throwable th
+          (a/put! res th))))
+    res))
+
+(defgoal? url)
+
+(defgoal<- content
+  [url]
+  (future
+    (try
+      (yield (str url "content"))
+      (catch Throwable th
+        (yield th)))))
+
+(defgoal<> contents
+  [urls]
+  (let [res-ch (a/chan (count urls))]
+    (a/pipeline-async 100
+                      res-ch
+                      (fn [url result-ch]
+                        (a/go (a/>! result-ch (a/<! (make<> content)))
+                              (a/close! result-ch)))
+                      (a/to-chan urls))
+    (a/into [] res-ch)))
+
+(deftest test-async
+  (let [n 10]
+    (is (= n
+           (-> contents make<> a/<!! count)))))
+
+(defgoal db-conn
+  [birth-row config]
+  (let [conn (:connect config)]
+    (swap! birth-row cons #(.close conn))
+    conn))
+
+(defgoal stopped-sys
+  [birth-row]
+  (doseq [s birth-row]
+    (s)))
