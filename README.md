@@ -6,24 +6,25 @@
 A Clojure library to explore inversion of control technique in a functional way. 
 
 * It is 
-  * a macro;
-  * experimental!!!
+  * still experimental! do not be fooled by the main version number
   * influenced by
     * dependency injection frameworks
     * goal oriented programming
     * declarative programming
     * build tools
     * data flow programming
+    * value-level programming
     * transducers
 
 ## Features
 
 * dependency tracking by looking for functions based on the parameter names
 * works across namespaces
+* asynchronous goals
+* dynamic parameter/dependency list
 
 
 ## Possible future directions
-* asynchronous goals
 * adoption in ClojureScript
 
 ## Usage
