@@ -31,26 +31,28 @@
          (let [simple (simple*)]
            simple))))
 
-(defn aa* [d] (* 3 d))
+(defn other*
+  [simple]
+  (str simple "-other"))
 
-;; three-times depends on d above
 
-(deftest simple-dependency
-  (is (= (make three-times)
-         15)))
+(defn another*
+  [other]
+  (str other "-another"))
 
-(defn six-times* [three-times] (* 2 three-times))
-
-;; six-times depends transitively on d
 
 (deftest base-transitive-dep-test
-  (is (= (make six-times)
-         30))
+  (is (= (make another)
+         "simple-other-another"
+         (let [simple (simple*)
+               other (other* simple)
+               another (another* other)]
+           another)))
 
   ;; shadow the original definition simply with let
-  (is (= (let [d 10]
-           (make six-times))
-         60)))
+  (is (= (let [simple "changed"]
+           (make another))
+         "changed-other-another")))
 
 ;-------------------------------------------------------------------------------
 
@@ -238,13 +240,49 @@
     (is (= n
            (-> contents make<> a/<!! count)))))
 
-(defgoal db-conn
-  [birth-row config]
-  (let [conn (:connect config)]
-    (swap! birth-row cons #(.close conn))
-    conn))
+;-------------------------------------------------------------------------------
+;Example support for reloaded framework.
+;Using as a better 'component' with the help of a stateful goal
+
+(def close-fns (atom (list)))
+
+(defgoal closing
+  "The goal is a function to store created goal as it happens."
+  []
+  (partial swap! close-fns #(cons %2 %1)))
 
 (defgoal stopped-sys
-  [birth-row]
-  (doseq [s birth-row]
-    (s)))
+  [closing]
+  (loop [[f & fns] @close-fns]
+    (when f
+      ;(println (-> f class))
+      (f)
+      (swap! close-fns rest)
+      (recur fns))))
+
+;The three things above consist the generic support for a reloaded workflow.
+;Find below the example 'components'.
+
+(defgoal config
+  [closing]
+  (closing (fn config-closer
+             []
+             (println "Closing the config.")))
+  "the config")
+
+(defgoal db-conn
+  [closing config]
+  (closing #(println "Closing the db-conn."))
+  (str "the db-conn and " config))
+
+(deftest my-own-component-framework
+  (let [db (make db-conn)]
+    (is (= db
+           "the db-conn and the config"))
+    (is (= (count @close-fns)
+           2))
+    (is (= (with-out-str
+             (make stopped-sys))
+           "Closing the db-conn.\nClosing the config.\n"))
+    (is (= (count @close-fns)
+           0))))
