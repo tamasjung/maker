@@ -178,8 +178,7 @@
 (defn goal-maker-call
   [goal goal-deps]
   `(~(or (goal-maker-symbol goal)
-         #_"FIXME"
-         #_(throw (ex-info "Missing goal definition" {:goal-var goal})))
+         (throw (ex-info "Missing goal definition" {:goal-var goal})))
      ~@(map local-dep-symbol goal-deps)))
 
 (defn dependants-set

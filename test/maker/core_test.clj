@@ -278,3 +278,18 @@
          0)))
 
 ;-------------------------------------------------------------------------------
+
+(deftest missing-def
+  (try
+    (eval '(do (use 'maker.core)
+               (defgoal a [b])
+               (make a)))
+    (catch clojure.lang.ExceptionInfo ei
+      (is (-> ei ex-data :goal-var :goal-local (= 'b)))))
+  (try
+    (eval '(do (use 'maker.core)
+               (defgoal<> a [b])
+               (make<> a)))
+    (catch clojure.lang.ExceptionInfo ei
+      (is (-> ei ex-data :goal-var :goal-local (= 'b))))))
+
