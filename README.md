@@ -18,7 +18,7 @@ A Clojure library to explore inversion of control technique in a functional way.
 
 ## Features
 
-* dependency tracking by looking for functions based on the parameter names
+* dependency tracking by looking for functions based on the names of parameters
 * works across namespaces
 * asynchronous goals
 * dynamic parameter/dependency list

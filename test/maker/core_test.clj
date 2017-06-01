@@ -70,10 +70,7 @@
 (deftest test-dynamic-goal
   (is (= (let [dd 1]
            (make goal-with-dyn-dep))
-         11))
-  ;FIXME another ex
-  (is (thrown? Throwable
-               (eval '(make goal-with-dyn-dep)))))
+         11)))
 
 ;-------------------------------------------------------------------------------
 
@@ -246,43 +243,38 @@
 
 (def close-fns (atom (list)))
 
-(defgoal closing
+(def closing
   "The goal is a function to store created goal as it happens."
-  []
-  (partial swap! close-fns #(cons %2 %1)))
+  (partial swap! close-fns conj))
 
-(defgoal stopped-sys
-  [closing]
-  (loop [[f & fns] @close-fns]
-    (when f
-      ;(println (-> f class))
-      (f)
-      (swap! close-fns rest)
-      (recur fns))))
+(defn stop-system
+  []
+  (doseq [f @close-fns]
+    (f)
+    (swap! close-fns rest)))
 
 ;The three things above consist the generic support for a reloaded workflow.
 ;Find below the example 'components'.
 
 (defgoal config
-  [closing]
-  (closing (fn config-closer
-             []
-             (println "Closing the config.")))
+  []
+  (closing #(println "Closing the config."))
   "the config")
 
 (defgoal db-conn
-  [closing config]
+  [config]
   (closing #(println "Closing the db-conn."))
-  (str "the db-conn and " config))
+  (str "the db-conn"))
 
-(deftest my-own-component-framework
-  (let [db (make db-conn)]
-    (is (= db
-           "the db-conn and the config"))
-    (is (= (count @close-fns)
-           2))
-    (is (= (with-out-str
-             (make stopped-sys))
-           "Closing the db-conn.\nClosing the config.\n"))
-    (is (= (count @close-fns)
-           0))))
+(deftest my-little-component-framework
+  (is (= (make db-conn)
+         "the db-conn"))
+  (is (= (count @close-fns)
+         2))
+  (is (= (with-out-str
+           (stop-system))
+         "Closing the db-conn.\nClosing the config.\n"))
+  (is (= (count @close-fns)
+         0)))
+
+;-------------------------------------------------------------------------------
