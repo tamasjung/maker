@@ -5,7 +5,8 @@
             [clojure.string :as string]
             [ns2 :refer [ns2a*]]
             [ns1 :refer [ns1a*]]
-            [clojure.core.async :as a]))
+            [clojure.core.async :as a])
+  (:import (clojure.lang ExceptionInfo)))
 
 ;-------------------------------------------------------------------------------
 
@@ -248,42 +249,41 @@
 
 ;-------------------------------------------------------------------------------
 ;Example support for reloaded framework.
-;Using as a better 'component' with the help of a stateful goal
 
-(def close-fns (atom (list)))
+(def release-fns (atom (list)))
 
-(def closing
+(def release-by
   "The goal is a function to store created goal as it happens."
-  (partial swap! close-fns conj))
+  (partial swap! release-fns conj))
 
 (defn stop-system
   []
-  (doseq [f @close-fns]
+  (doseq [f @release-fns]
     (f)
-    (swap! close-fns rest)))
+    (swap! release-fns rest)))
 
 ;The three things above consist the generic support for a reloaded workflow.
-;Find below the example 'components'.
+;Find below the sample 'components'.
 
 (defgoal config
   []
-  (closing #(println "Closing the config."))
+  (release-by #(println "Release the config."))
   "the config")
 
 (defgoal db-conn
   [config]
-  (closing #(println "Closing the db-conn."))
+  (release-by #(println "Release the db-conn."))
   (str "the db-conn"))
 
 (deftest my-little-component-framework
   (is (= (make db-conn)
          "the db-conn"))
-  (is (= (count @close-fns)
+  (is (= (count @release-fns)
          2))
   (is (= (with-out-str
            (stop-system))
-         "Closing the db-conn.\nClosing the config.\n"))
-  (is (= (count @close-fns)
+         "Release the db-conn.\nRelease the config.\n"))
+  (is (= (count @release-fns)
          0)))
 
 ;-------------------------------------------------------------------------------
@@ -293,13 +293,15 @@
     (eval '(do (use 'maker.core)
                (defgoal a [b])
                (make a)))
-    (catch clojure.lang.ExceptionInfo ei
+    (is false)
+    (catch Throwable ei
       (is (-> ei ex-data :goal-var :goal-local (= 'b)))))
   (try
     (eval '(do (use 'maker.core)
                (defgoal<> a [b])
                (make<> a)))
-    (catch clojure.lang.ExceptionInfo ei
+    (is false)
+    (catch Throwable ei
       (is (-> ei ex-data :goal-var :goal-local (= 'b))))))
 
 ;-------------------------------------------------------------------------------
