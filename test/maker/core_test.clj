@@ -61,6 +61,7 @@
   ;; for external namespaces maker munges the binding names,
   ;; check it with macroexpansion
   (is (= 222 (make ns2a)))
+  ;with-goals is an extended let, works well with goal from another namespace.
   (is (= 22 (with-goals [ns1a 11]
               (make ns2a)))))
 
@@ -157,10 +158,11 @@
 
 (deftest circular-dep
   ;FIXME false test method
-  (is (thrown? Throwable (eval '(do
-                                  (defn self*
-                                    [self])
-                                  (make self))))))
+  (is (thrown? Throwable
+               (eval '(do
+                        (defn self*
+                          [self])
+                        (make self))))))
 
 ;-------------------------------------------------------------------------------
 
@@ -194,7 +196,7 @@
 
 (defgoal view-ones
   [? model-ones]
-  (map (fn [model-one] (*- view-one))
+  (map (fn [model-one] (make view-one))
        model-ones))
 
 (deftest two-levels-iteration
@@ -231,7 +233,7 @@
 (defgoal<> contents
   [urls]
   (let [res-ch (a/chan (count urls))]
-    (a/pipeline-async 100
+    (a/pipeline-async 10
                       res-ch
                       (fn [url result-ch]
                         (a/go (a/>! result-ch (a/<! (make<> content)))
@@ -299,3 +301,26 @@
                (make<> a)))
     (catch clojure.lang.ExceptionInfo ei
       (is (-> ei ex-data :goal-var :goal-local (= 'b))))))
+
+;-------------------------------------------------------------------------------
+
+(defgoal e1
+  []
+  (throw (ex-info "oops" {})))
+
+(defgoal e2
+  [e1]
+  "ok")
+
+(defgoal<> e3
+  [e2]
+  "ok")
+
+(deftest error-handling
+  (is (thrown? Throwable
+               (make e2)))
+
+  (is (thrown? Throwable
+               (deref?? (make<> e3)))))
+
+

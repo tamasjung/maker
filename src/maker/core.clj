@@ -4,7 +4,8 @@
             [clojure.string :as string]
             [clojure.pprint :refer [pprint]]
             [clojure.walk :as walk]
-            [clojure.core.async :as a]))
+            [clojure.core.async :as a])
+  (:import (java.util.concurrent Executors)))
 
 (defn inj-munge
   "Injective munge"
@@ -55,7 +56,7 @@
 (defn resolve-in
   [symbol ns]
   (some
-    #(some-> ns % (get symbol))                             ;;FIXME some-> ?????
+    #(some-> ns % (get symbol))
     [ns-publics ns-refers]))
 
 (defn goal-maker-symbol
@@ -86,12 +87,12 @@
           inj-munge
           symbol))))
 
-(defn on-the-fly-goal-decl                                  ;TODO remove
+(defn on-the-fly-goal-decl
   [ns whole-param-name]
   (let [s (goal-param-goal-local ns whole-param-name)]
     {:goal-local s}))
 
-(def on-the-fly? (complement :goal-var))                    ;TODO remove
+(def on-the-fly? (complement :goal-var))
 
 (defn goal-param-goal-map
   [ns goal-param]
@@ -103,7 +104,7 @@
                        symbol
                        (resolve-in ns))]
       (if-not goal-var
-        (on-the-fly-goal-decl ns whole-p)                   ;TODO remove, throw ex
+        (on-the-fly-goal-decl ns whole-p)
         {:goal-var goal-var
          :goal-local (goal-param-goal-local
                        (-> goal-var meta :ns)
@@ -254,8 +255,6 @@
   [goal]
   `(make-with ~goal ~&env))
 
-(def #^{:macro true} *- #'make)
-
 (defn with-goal-meta
   [name]
   (with-meta (-> name
@@ -337,57 +336,63 @@
                                                     (:values ctx))))))]
           (execute-goal ctx-atom goal-map-to-run))))))
 
+(defn set-result
+  [ctx-atom v]
+  (-> @ctx-atom
+      :result
+      (a/put! v)))
+
 (defn receive-goal
   [ctx-atom goal-map goal-val]
-  (swap! ctx-atom
-         (fn [ctx]
-           (if (and (-> ctx
-                        :values
-                        (contains? (:goal-local goal-map)))
-                    (not ((@ctx-atom :used-from-env) (:goal-local goal-map))))
-             (throw (ex-info "yield called twice" {:goal-map goal-map}))
-             (assoc-in ctx [:values (:goal-local goal-map)] goal-val))))
-  (distribute-goal-val ctx-atom goal-map goal-val))
+  (if (instance? Throwable goal-val)
+    (set-result ctx-atom goal-val)
+    (do
+      (swap! ctx-atom
+             (fn [ctx]
+               (if (and (-> ctx
+                            :values
+                            (contains? (:goal-local goal-map)))
+                        (not ((@ctx-atom :used-from-env) (:goal-local goal-map))))
+                 (throw (ex-info "yield called twice" {:goal-map goal-map}))
+                 (assoc-in ctx [:values (:goal-local goal-map)] goal-val))))
+      (distribute-goal-val ctx-atom goal-map goal-val))))
 
 (defn receive-goal-error
   [ctx-atom goal err]
-  ;FIXME store special delay
-  (prn "receive error" goal err)
-  (.printStackTrace err)
-  (throw (ex-info "receive goal err" {:error err})))
+  (set-result ctx-atom err))
+
+(def ^:dynamic *executor* (-> (.. Runtime getRuntime availableProcessors)
+                              (+ 2)
+                              (Executors/newFixedThreadPool)))
 
 (defn execute-goal
   [ctx-atom goal-map]
-  (let [error-fn (partial receive-goal-error ctx-atom goal-map)] ;FIXME remove
-    (binding [*maker-ns* (:ns @ctx-atom)]
-      (future
-        (try
-          (let [deps (->> goal-map
-                          goal-map-dep-goal-maps
-                          (map (partial value-of-goal @ctx-atom)))
-                yield-fn (if (-> @ctx-atom :goal-map (= goal-map))
-                           (fn _put-result
-                             [v] (-> @ctx-atom
-                                     :result
-                                     (a/put! v)))
-                           (partial receive-goal ctx-atom goal-map))]
-            (let [meta (-> goal-map :goal-meta)]
-              (cond
-                (::async-goal-channel meta)
-                (a/go (-> goal-map
-                          :goal-var
-                          (apply deps)
-                          (a/<!)
-                          yield-fn))
+  (binding [*maker-ns* (:ns @ctx-atom)]
+    (.execute *executor*
+              (bound-fn _goal-executor-fn []                ;TBD do we need this?
+                (try
+                  (let [deps (->> goal-map
+                                  goal-map-dep-goal-maps
+                                  (map (partial value-of-goal @ctx-atom)))
+                        yield-fn (if (-> @ctx-atom :goal-map (= goal-map))
+                                   (partial set-result ctx-atom)
+                                   (partial receive-goal ctx-atom goal-map))]
+                    (let [meta (-> goal-map :goal-meta)]
+                      (cond
+                        (::async-goal-channel meta)
+                        (a/go (-> goal-map
+                                  :goal-var
+                                  (apply deps)
+                                  (a/<!)
+                                  yield-fn))
 
-                (::async-goal-callback meta)
-                (apply (:goal-var goal-map) (into [yield-fn] deps))
+                        (::async-goal-callback meta)
+                        (apply (:goal-var goal-map) (into [yield-fn] deps))
 
-                :default
-                (yield-fn (apply (:goal-var goal-map) deps)))))
-          (catch Throwable th
-            (.printStackTrace th)                           ;FIXME remove
-            (error-fn th)))))))
+                        :default
+                        (yield-fn (apply (:goal-var goal-map) deps)))))
+                  (catch Throwable th
+                    (receive-goal-error ctx-atom goal-map th)))))))
 
 (def contextes (atom {}))
 
@@ -438,12 +443,28 @@
                                       %))
                         vec)))))
 
-(defn th
+(defn throw??
   "Throw throwable, return param otherwise."
   [in]
   (if (instance? Throwable in)
-    (throw (RuntimeException. in))
+    (throw (ex-info "Value is a Throwable" {} in))
     in))
+
+(defn valid??
+  [sth]
+  (cond
+    (nil? sth)
+    (throw (ex-info "Nil is invalid here." {}))
+
+    (instance? Throwable sth)
+    (throw (ex-info "Value is throwable" {} sth))
+
+    :default
+    sth))
+
+(defn deref??
+  [ch]
+  (valid?? (a/<!! ch)))
 
 (defmacro with-goals
   [pairs & body]

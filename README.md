@@ -6,7 +6,7 @@
 A Clojure library to explore inversion of control technique in a functional way. 
 
 * It is 
-  * still experimental! do not be fooled by the main version number
+  * still experimental! do not be fooled by the major version number
   * influenced by
     * dependency injection frameworks
     * goal oriented programming
