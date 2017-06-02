@@ -42,16 +42,18 @@
   (cond
     (symbol? dep) dep
     (map? dep) (or (:as dep)
-                   (throw (IllegalArgumentException.
-                            (str "Missing dependency name, you may want to add :as to the parameter destructuring."))))
+                   (throw (ex-info
+                            "Missing dependency name, you may want to add ':as' to the parameter destructuring."
+                            {:dep dep})))
     (vector? dep) (let [[as whole] (take-last 2 dep)]
                     (if (and (= :as as)
                              (symbol? whole))
                       whole
-                      (throw (IllegalArgumentException.
-                               (str "Unrecognized vector param" dep ".")))))
-    :default (throw (IllegalArgumentException.
-                      (str "Unrecognized dependency:" dep ".")))))
+                      (throw (ex-info "Unrecognized vector param."
+                                      {:dep dep}))))
+    :default (throw (ex-info
+                      "Unrecognized dependency."
+                      {:dep dep}))))
 
 (defn resolve-in
   [symbol ns]
@@ -161,11 +163,10 @@
     (if (-> state :local-env (get (:goal-local goal)))
       (recur state (rest goals))
       (if (-> state :circular-dep (get goal))
-        (throw (IllegalStateException.
-                 (str "Circural dependency:"
-                      goal
-                      ", walk-path:"
-                      (:walk-goal-list state))))
+        (throw (ex-info
+                 "Circular dependency:"
+                 {:goal goal
+                  :walk-goal-list (:walk-goal-list state)}))
         (update (run-on-goals
                   (handle-goal
                     goal

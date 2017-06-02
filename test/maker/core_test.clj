@@ -128,7 +128,7 @@
 (defn m* [] {:a 1 :b 2})
 (defn v* [] [11 22])
 
-;; we work together with destructuring
+;; maker works together with destructuring
 (defn destr-goal*
   [{:keys [a b] :as m} [c :as v]]
   (list a b m c v))
@@ -156,14 +156,13 @@
 
 ;; circular dependency is an error at compile time
 
-
 (deftest circular-dep
-  ;FIXME false test method
-  (is (thrown? Throwable
-               (eval '(do
-                        (defn self*
-                          [self])
-                        (make self))))))
+  (is (thrown-with-msg? Throwable #"irc"
+                        (eval '(do
+                                 (use 'maker.core)
+                                 (defn self*
+                                   [self])
+                                 (make self))))))
 
 ;-------------------------------------------------------------------------------
 
@@ -319,10 +318,8 @@
   "ok")
 
 (deftest error-handling
-  (is (thrown? Throwable
-               (make e2)))
+  (is (thrown-with-msg? Throwable #"oops"
+                        (make e2)))
 
   (is (thrown? Throwable
                (deref?? (make<> e3)))))
-
-
