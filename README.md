@@ -3,8 +3,7 @@
 
 # maker
 
-A Clojure library to explore inversion of control technique in a functional
-basis.
+
 
 ## The basic idea
 
