@@ -10,20 +10,13 @@
 
 ;-------------------------------------------------------------------------------
 
-(deftest munge-test
-  (are [s res] (-> s inj-munge (= res))
-               "aa" "aa"
-               "a.b/c" "a_b!c"
-               "ab/c" "ab!c"))
-
-;-------------------------------------------------------------------------------
-
 (defn simple*
   []
   "simple")
 
 ;; simple is called a 'goal'
 ;; simple* is the 'maker function
+;; "simple" is the value of the goal
 
 (deftest test-simple
   (is (= "simple"
@@ -33,12 +26,14 @@
          (let [simple (simple*)]
            simple))))
 
+;; to define a maker function just put '*' at the end of name.
 (defn other*
   [simple]
   (str simple "-other"))
 
-
-(defn another*
+;; the defgoal macro put '*' at the end of the maker function
+(defgoal another
+  "Just another goal but now using the defgoal - the same effect."
   [other]
   (str other "-another"))
 
@@ -89,6 +84,7 @@
   (swap! call-counter inc)
   2)
 
+;; the next is a declaration of a goal
 (defgoal? iterator-item)
 
 (defn iterator-items*
@@ -99,29 +95,41 @@
   [factor iterator-item]
   (* iterator-item factor))
 
-
+;;Look at iterator-item, it was declared above and the actual value is defined
+;;here locally.
 (defgoal collected-items
-  [? iterator-items]
-  (map (fn [iterator-item]
+  "A goal with a make call in it."
+  [iterator-items]
+  (map (fn [iterator-item]                                  ;binds to iterator-item goal, declared above
          (make collected-item))
        iterator-items))
 
 (deftest test-static-collectors
   (is (= (last (make collected-items))
          18))
-  ;; despite it is required inside the iteration
-  ;; 'factor' is made in the 'right' place and called only once
-  (is (= @call-counter 1)))
+  ;;factor* was called 10 times, usually this is not what you want...so read on.
+  (is (= @call-counter 10)))
 
+;;The new thing here is the dynamic/implicit parameter list. Maker checks the
+;;first parameter, if it is '?' then it extends the parameter list with the
+;;neccessary dependency goals. Check with macroexpansion: 'factor' appears as an
+;;implicit dependency and created in an upper level.
+;;Compare with collected-items above.
 (defgoal another-collected-items
+  "A goal with an implicit dependency: 'factor'"
   [? iterator-items]
   (map (fn [iterator-item]
          (* 2 (make collected-item)))
        iterator-items))
 
 (deftest test-for-vector
+  (reset! call-counter 0)
+  ;;expand the make below, the creation of factor is in the right place now.
   (is (= (last (make another-collected-items))
-         36)))
+         36))
+  ;; despite it is required inside the iteration
+  ;;'factor' is made in the 'right' place and called only once
+  (is (= @call-counter 1)))
 
 ;-------------------------------------------------------------------------------
 
@@ -131,17 +139,17 @@
 ;; maker works together with destructuring
 (defn destr-goal*
   [{:keys [a b] :as m} [c :as v]]
-  (list a b m c v))
+  [a b m c v])
 
 (deftest test-destr
   (is (= (make destr-goal)
-         (list 1 2 {:a 1 :b 2} 11 [11 22]))))
+         [1 2 {:a 1 :b 2} 11 [11 22]])))
 
 ;; destructuring wiht dynamic goals
 
 (defn d-destr-goal*
   [{:keys [a b] :as dm} [c :as dv]]
-  (list a b dm c dv))
+  [a b dm c dv])
 
 (defgoal? dm)
 (defgoal? dv)
@@ -150,14 +158,14 @@
   (is (= (let [dm {:a 111 :b 222}
                dv [1 2]]
            (make d-destr-goal))
-         (list 111 222 {:a 111 :b 222} 1 [1 2]))))
+         [111 222 {:a 111 :b 222} 1 [1 2]])))
 
 ;-------------------------------------------------------------------------------
 
 ;; circular dependency is an error at compile time
 
 (deftest circular-dep
-  (is (thrown-with-msg? Throwable #"irc"
+  (is (thrown-with-msg? Throwable #"ircular"
                         (eval '(do
                                  (use 'maker.core)
                                  (defn self*
@@ -165,50 +173,14 @@
                                  (make self))))))
 
 ;-------------------------------------------------------------------------------
-
-
-(defgoal model-ones
-  []
-  [[1 2] [3 4]])
-
-(defgoal model-twos
-  [model-one]
-  model-one)
-
-(defgoal? model-two)
-(declare model-one*)
-
-(defn view-two*
-  [model-two]
-  (str model-two))
-
-(defgoal view-twos
-  [model-twos]
-  (for [model-two model-twos]
-    (make view-two)))
-
-(defgoal view-one-factor
-  [])
-
-(defgoal view-one
-  [view-twos view-one-factor]
-  (string/join "-" view-twos))
-
-(defgoal view-ones
-  [? model-ones]
-  (map (fn [model-one] (make view-one))
-       model-ones))
-
-(deftest two-levels-iteration
-  (is (= (make view-ones)
-         (list "1-2"
-               "3-4"))))
-
-;-------------------------------------------------------------------------------
+;;An async example.
 
 (defgoal? n)
 
+;;For every defgoal<> the return value has to be a channel and maker's duty to
+;;to unwrap the value from it properly.
 (defgoal<> urls
+  "This goal is defined as a content of a channel."
   [n]
   (let [res (a/promise-chan) #_(a/chan 1)]
     (future
@@ -222,6 +194,7 @@
 
 (defgoal? url)
 
+;;For defgoal<- the return value is given by calling the yield callback.
 (defgoal<- content
   [url]
   (future
@@ -241,6 +214,8 @@
                       (a/to-chan urls))
     (a/into [] res-ch)))
 
+;;make<> will resolve the dependencies asynchronously, in parallel and returns
+;;a channel.
 (deftest test-async
   (let [n 10]
     (is (= n
@@ -249,40 +224,40 @@
 ;-------------------------------------------------------------------------------
 ;Example support for reloaded framework.
 
-(def release-fns (atom (list)))
+(def stop-fns (atom (list)))
 
-(def release-by
+(def stop-fn
   "The goal is a function to store created goal as it happens."
-  (partial swap! release-fns conj))
+  (partial swap! stop-fns conj))
 
 (defn stop-system
   []
-  (doseq [f @release-fns]
+  (doseq [f @stop-fns]
     (f)
-    (swap! release-fns rest)))
+    (swap! stop-fns rest)))
 
 ;The three things above consist the generic support for a reloaded workflow.
 ;Find below the sample 'components'.
 
 (defgoal config
   []
-  (release-by #(println "Release the config."))
+  (stop-fn #(println "stop the config."))
   "the config")
 
 (defgoal db-conn
   [config]
-  (release-by #(println "Release the db-conn."))
+  (stop-fn #(println "stop the db-conn."))
   (str "the db-conn"))
 
 (deftest my-little-component-framework
   (is (= (make db-conn)
          "the db-conn"))
-  (is (= (count @release-fns)
+  (is (= (count @stop-fns)
          2))
   (is (= (with-out-str
            (stop-system))
-         "Release the db-conn.\nRelease the config.\n"))
-  (is (= (count @release-fns)
+         "stop the db-conn.\nstop the config.\n"))
+  (is (= (count @stop-fns)
          0)))
 
 ;-------------------------------------------------------------------------------
@@ -294,14 +269,14 @@
                (make a)))
     (is false)
     (catch Throwable ei
-      (is (-> ei ex-data :goal-var :goal-local (= 'b)))))
+      (is (-> ei ex-data :goal-map :goal-local (= 'b)))))
   (try
     (eval '(do (use 'maker.core)
                (defgoal<> a [b])
                (make<> a)))
     (is false)
     (catch Throwable ei
-      (is (-> ei ex-data :goal-var :goal-local (= 'b))))))
+      (is (-> ei ex-data :goal-map :goal-local (= 'b))))))
 
 ;-------------------------------------------------------------------------------
 
@@ -322,4 +297,13 @@
                         (make e2)))
 
   (is (thrown? Throwable
-               (deref?? (make<> e3)))))
+               (take?? (make<> e3)))))
+
+;-------------------------------------------------------------------------------
+
+(deftest munge-test
+  (are [s res] (-> s inj-munge (= res))
+               "aa" "aa"
+               "a.b/c" "a_b!c"
+               "ab/c" "ab!c"))
+

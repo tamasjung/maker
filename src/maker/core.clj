@@ -178,9 +178,9 @@
 (declare make-internal)
 
 (defn goal-maker-call
-  [goal goal-deps]
-  `(~(or (goal-maker-symbol goal)
-         (throw (ex-info "Missing goal definition" {:goal-var goal})))
+  [goal-map goal-deps]
+  `(~(or (goal-maker-symbol goal-map)
+         (throw (ex-info "Missing goal definition" {:goal-map goal-map})))
      ~@(map local-dep-symbol goal-deps)))
 
 (defn dependants-set
@@ -266,13 +266,13 @@
 (defn params-fn
   [f [first-param second-param :as fdecl]]
   (if (string? first-param)
-    (apply list first-param (f second-param) (rest (rest fdecl)))
+    (apply list first-param (f second-param) (nnext fdecl))
     (apply list (f first-param) (rest fdecl))))
 
 (defn first-param
   [fdecl]
   (if (-> fdecl first string?)
-    (fnext fdecl)
+    (-> fdecl second first)
     (ffirst fdecl)))
 
 (defmacro defgoal
@@ -280,6 +280,7 @@
   (if (-> fdecl first-param (= '?))
     (let [additional-params
           (binding [*non-local-deps* []]
+            ;;this is really a dirty trick but what can we do?
             (eval (apply list 'defn name fdecl))
             (->> *non-local-deps*
                  (map :goal-local)
@@ -337,16 +338,27 @@
                                                     (:values ctx))))))]
           (execute-goal ctx-atom goal-map-to-run))))))
 
-(defn set-result
+(defn put-to-result
   [ctx-atom v]
+  (locking ctx-atom
+    (-> @ctx-atom
+        :result
+        second
+        (a/put! v (fn [not-closed] (if not-closed
+                                     (swap! ctx-atom update-in [:result 0] not)
+                                     (throw (ex-info "Result channel is closed"
+                                                     {:ctx @ctx-atom}))))))))
+
+(defn has-result
+  [ctx-atom]
   (-> @ctx-atom
       :result
-      (a/put! v)))
+      first))
 
 (defn receive-goal
   [ctx-atom goal-map goal-val]
   (if (instance? Throwable goal-val)
-    (set-result ctx-atom goal-val)
+    (put-to-result ctx-atom goal-val)
     (do
       (swap! ctx-atom
              (fn [ctx]
@@ -360,7 +372,7 @@
 
 (defn receive-goal-error
   [ctx-atom goal err]
-  (set-result ctx-atom err))
+  (put-to-result ctx-atom err))
 
 (def ^:dynamic *executor* (-> (.. Runtime getRuntime availableProcessors)
                               (+ 2)
@@ -370,30 +382,31 @@
   [ctx-atom goal-map]
   (binding [*maker-ns* (:ns @ctx-atom)]
     (.execute *executor*
-              (bound-fn _goal-executor-fn []                ;TBD do we need this?
-                (try
-                  (let [deps (->> goal-map
-                                  goal-map-dep-goal-maps
-                                  (map (partial value-of-goal @ctx-atom)))
-                        yield-fn (if (-> @ctx-atom :goal-map (= goal-map))
-                                   (partial set-result ctx-atom)
-                                   (partial receive-goal ctx-atom goal-map))]
-                    (let [meta (-> goal-map :goal-meta)]
-                      (cond
-                        (::async-goal-channel meta)
-                        (a/go (-> goal-map
-                                  :goal-var
-                                  (apply deps)
-                                  (a/<!)
-                                  yield-fn))
+              (bound-fn _goal-executor-fn []                ;TBD do we want/need this?
+                (when-not (has-result ctx-atom)
+                  (try
+                    (let [deps (->> goal-map
+                                    goal-map-dep-goal-maps
+                                    (map (partial value-of-goal @ctx-atom)))
+                          yield-fn (if (-> @ctx-atom :goal-map (= goal-map))
+                                     (partial put-to-result ctx-atom)
+                                     (partial receive-goal ctx-atom goal-map))]
+                      (let [meta (-> goal-map :goal-meta)]
+                        (cond
+                          (::async-goal-channel meta)
+                          (a/go (-> goal-map
+                                    :goal-var
+                                    (apply deps)
+                                    (a/<!)
+                                    yield-fn))
 
-                        (::async-goal-callback meta)
-                        (apply (:goal-var goal-map) (into [yield-fn] deps))
+                          (::async-goal-callback meta)
+                          (apply (:goal-var goal-map) (into [yield-fn] deps))
 
-                        :default
-                        (yield-fn (apply (:goal-var goal-map) deps)))))
-                  (catch Throwable th
-                    (receive-goal-error ctx-atom goal-map th)))))))
+                          :default
+                          (yield-fn (apply (:goal-var goal-map) deps)))))
+                    (catch Throwable th
+                      (receive-goal-error ctx-atom goal-map th))))))))
 
 (def contextes (atom {}))
 
@@ -402,7 +415,7 @@
   (let [result (a/chan 1)
         ctx-atom (atom @(get @contextes ctx-id))            ;clone compile time context
         used-from-env (:used-from-env @ctx-atom)]
-    (swap! ctx-atom assoc :result result)
+    (swap! ctx-atom assoc :result [false result])
     (doseq [goal-map (:starters @ctx-atom)]
       (execute-goal ctx-atom goal-map))
     (doseq [[local val] env-bindings]
@@ -463,7 +476,7 @@
     :default
     sth))
 
-(defn deref??
+(defn take??
   [ch]
   (valid?? (a/<!! ch)))
 
