@@ -295,6 +295,10 @@
 (deftest error-handling
   (is (thrown-with-msg? Throwable #"oops"
                         (make e2)))
+  (is (thrown-with-msg? Throwable #"async"
+                        (eval '(do (use 'maker.core)
+                                   (defgoal<> a [])
+                                   (make a)))))
 
   (is (thrown? Throwable
                (take?? (make<> e3)))))

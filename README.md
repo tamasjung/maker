@@ -97,7 +97,6 @@ To learn [see](test/maker/core_test.clj) and play with the didactic tests.
 
 ## Known issues
 
-* make with async goals is an error but not handled nicely.
 * make<> probably does not work with AOT compilation.
 
 ## License

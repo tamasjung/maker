@@ -243,11 +243,23 @@
       create-maker-state
       (run-on-goals [goal])))
 
+(def async-types #{::async-goal-channel
+                   ::async-goal-callback})
+
 (defmacro make-with
   "Make a goal out of the environment"
   [goal-sym env]
   (let [goal (goal-param-goal-map *ns* goal-sym)
         end-state (discover-dependencies env goal)]
+    (when-let [async-goal (some #(-> %
+                                     :goal-meta
+                                     keys
+                                     set
+                                     (set/intersection async-types)
+                                     seq)
+                                (:walk-goal-list end-state))]
+      (throw (ex-info "Synchronous make depends on async goal"
+                      {:goal-map async-goal})))
     (collect-non-local-deps! env *ns* end-state goal)
     (-> end-state
         (make-internal goal))))
