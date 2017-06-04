@@ -348,6 +348,7 @@
                                    goal-map-dep-goal-maps
                                    (every? (partial goal-value-exists?
                                                     (:values ctx))))))]
+          ;;FIXME we hold the 'head' in ctx now, they should be released after the 'last' use.
           (execute-goal ctx-atom goal-map-to-run))))))
 
 (defn put-to-result
@@ -394,7 +395,7 @@
   [ctx-atom goal-map]
   (binding [*maker-ns* (:ns @ctx-atom)]
     (.execute *executor*
-              (bound-fn _goal-executor-fn []                ;TBD do we want/need this?
+              (bound-fn _goal-executor-fn []                ;TBD do we want/need bound-fn later without *maker-ns*?
                 (when-not (has-result ctx-atom)
                   (try
                     (let [deps (->> goal-map

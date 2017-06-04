@@ -227,7 +227,6 @@
 (def stop-fns (atom (list)))
 
 (def stop-fn
-  "The goal is a function to store created goal as it happens."
   (partial swap! stop-fns conj))
 
 (defn stop-system
