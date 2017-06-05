@@ -341,15 +341,14 @@
   [ctx-atom goal-map goal-val]
   (locking ctx-atom
     (let [ctx @ctx-atom]
-      (binding [*maker-ns* (:ns ctx)]
-        (doseq [goal-map-to-run
-                (->> (-> ctx :graph :rev-dep-goals (get goal-map))
-                     (filter #(->> %
-                                   goal-map-dep-goal-maps
-                                   (every? (partial goal-value-exists?
-                                                    (:values ctx))))))]
-          ;;FIXME we hold the 'head' in ctx now, they should be released after the 'last' use.
-          (execute-goal ctx-atom goal-map-to-run))))))
+      (doseq [goal-map-to-run
+              (->> (-> ctx :graph :rev-dep-goals (get goal-map))
+                   (filter #(->> %
+                                 goal-map-dep-goal-maps
+                                 (every? (partial goal-value-exists?
+                                                  (:values ctx))))))]
+        ;;FIXME we hold the 'head' in ctx now, they should be released after the 'last' use.
+        (execute-goal ctx-atom goal-map-to-run)))))
 
 (defn put-to-result
   [ctx-atom v]
@@ -393,33 +392,44 @@
 
 (defn execute-goal
   [ctx-atom goal-map]
-  (binding [*maker-ns* (:ns @ctx-atom)]
-    (.execute *executor*
-              (bound-fn _goal-executor-fn []                ;TBD do we want/need bound-fn later without *maker-ns*?
-                (when-not (has-result ctx-atom)
-                  (try
-                    (let [deps (->> goal-map
-                                    goal-map-dep-goal-maps
-                                    (map (partial value-of-goal @ctx-atom)))
-                          yield-fn (if (-> @ctx-atom :goal-map (= goal-map))
-                                     (partial put-to-result ctx-atom)
-                                     (partial receive-goal ctx-atom goal-map))]
-                      (let [meta (-> goal-map :goal-meta)]
-                        (cond
-                          (::async-goal-channel meta)
-                          (a/go (-> goal-map
-                                    :goal-var
-                                    (apply deps)
-                                    (a/<!)
-                                    yield-fn))
+  (.execute *executor*
+            (bound-fn _goal-executor-fn []                  ;TBD do we want/need bound-fn later without *maker-ns*?
+              (when-not (has-result ctx-atom)
+                (try
+                  (let [deps (->> goal-map
+                                  goal-map-dep-goal-maps
+                                  (map (partial value-of-goal @ctx-atom)))
+                        yield-fn (if (-> @ctx-atom :goal-map (= goal-map))
+                                   (partial put-to-result ctx-atom)
+                                   (partial receive-goal ctx-atom goal-map))]
+                    (let [meta (-> goal-map :goal-meta)]
+                      (cond
+                        (::async-goal-channel meta)
+                        (a/go (-> goal-map
+                                  :goal-var
+                                  (apply deps)
+                                  (a/<!)
+                                  yield-fn))
 
-                          (::async-goal-callback meta)
-                          (apply (:goal-var goal-map) (into [yield-fn] deps))
+                        (::async-goal-callback meta)
+                        (apply (:goal-var goal-map) (into [yield-fn] deps))
 
-                          :default
-                          (yield-fn (apply (:goal-var goal-map) deps)))))
-                    (catch Throwable th
-                      (receive-goal-error ctx-atom goal-map th))))))))
+                        :default
+                        (yield-fn (apply (:goal-var goal-map) deps)))))
+                  (catch Throwable th
+                    (receive-goal-error ctx-atom goal-map th)))))))
+
+(defn filter-used-goals
+  [graph goal-local-pred]
+  (->> graph
+       :walk-goal-list
+       (mapcat goal-map-dep-goal-maps)
+       (filter (comp goal-local-pred :goal-local))
+       distinct
+       (remove (comp (set async-callbacks)
+                     :goal-local))
+       (map (juxt :goal-local identity))
+       (into {})))
 
 (def contextes (atom {}))
 
@@ -429,15 +439,7 @@
       (let [ns (find-ns ns-sym)
             goal-map (goal-param-goal-map ns goal-param)
             graph (discover-dependencies env-keys-set goal-map)
-            used-from-env (->> graph
-                               :walk-goal-list
-                               (mapcat goal-map-dep-goal-maps)
-                               (filter (comp env-keys-set :goal-local))
-                               distinct
-                               (remove (comp (set async-callbacks)
-                                             :goal-local))
-                               (map (juxt :goal-local identity))
-                               (into {}))
+            used-from-env (filter-used-goals graph env-keys-set)
             starters (->> graph
                           :walk-goal-list
                           (filter #(when (contains? (-> % :goal-meta) :arglists)
@@ -454,7 +456,7 @@
 
 (defn run-make<>
   [goal-param ns-sym ctx-id env-bindings]
-  (binding [*maker-ns* (find-ns ns-sym)]                    ;TODO remove
+  (binding [*maker-ns* (find-ns ns-sym)]                    ;TODO eliminate binding
     (let [result (a/chan 1)
           ctx-atom (atom (ensure-context-for ns-sym
                                              ctx-id
@@ -475,28 +477,8 @@
    (let [goal-map (goal-param-goal-map *ns* goal-param)
          graph (discover-dependencies (keys &env) goal-map)
          env (or &env {})
-         used-from-env (->> graph
-                            :walk-goal-list
-                            (mapcat goal-map-dep-goal-maps)
-                            (filter (comp env :goal-local))
-                            distinct
-                            (remove (comp (set async-callbacks)
-                                          :goal-local))
-                            (map (juxt :goal-local identity))
-                            (into {}))
-         starters (->> graph
-                       :walk-goal-list
-                       (filter #(when (contains? (-> % :goal-meta) :arglists)
-                                  (let [arglists (-> % :goal-meta :arglists)]
-                                    (and (= 1 (count arglists))
-                                         (-> arglists first empty?))))))
+         used-from-env (filter-used-goals graph env)
          ctx-id (gensym goal-param)]
-     #_(swap! contextes assoc ctx-id
-              (atom {:ns *ns*
-                     :graph graph
-                     :starters starters
-                     :used-from-env used-from-env
-                     :goal-map goal-map}))
      `(run-make<> ~(list 'quote goal-param)
                   ~(list 'quote (ns-name *ns*))
                   ~(list 'quote ctx-id)

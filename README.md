@@ -60,8 +60,9 @@ search for 'reloaded' in `core-test`).
 
 ## What is the problem again?
 
-[Watch this](https://youtu.be/Z6oVuYmRgkk?t=9m54s) for 3 minutes. We are
-speaking about the same issue, it is a rather different solution though.
+[Watch this](https://youtu.be/Z6oVuYmRgkk?t=9m54s). A bit
+different domain and a different solution but he is speaking about the same
+issue for 3 minutes.
 
 ## It is
 
@@ -78,7 +79,7 @@ speaking about the same issue, it is a rather different solution though.
   * small
     * tough not minimal/optimal yet
   * old ideas implemented on top of a shiny functional language
-  * ideal for composing values (and that should not be so rare out there). 
+  * ideal for composing values 
 
 ## Features
 
@@ -98,10 +99,6 @@ speaking about the same issue, it is a rather different solution though.
 [maker "2.0.0-SNAPSHOT"] ;;after git clone, lein install
 ```
 To learn [see](test/maker/core_test.clj) and play with the didactic tests.
-
-## Known issues
-
-* make<> probably does not work with AOT compilation. Yet.
 
 ## License
 
