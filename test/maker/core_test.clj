@@ -182,7 +182,7 @@
 (defgoal<> urls
   "This goal is defined as a content of a channel."
   [n]
-  (let [res (a/promise-chan) #_(a/chan 1)]
+  (let [res (a/promise-chan)]
     (future
       (try
         (->> (range n)

@@ -236,10 +236,8 @@
             (into *non-local-deps* minimal-non-local-goal-set)))))
 
 (defn discover-dependencies
-  [env goal]
-  (-> env
-      keys
-      set
+  [env-keys-set goal]
+  (-> env-keys-set
       create-maker-state
       (run-on-goals [goal])))
 
@@ -250,7 +248,9 @@
   "Make a goal out of the environment"
   [goal-sym env]
   (let [goal (goal-param-goal-map *ns* goal-sym)
-        end-state (discover-dependencies env goal)]
+        end-state (discover-dependencies (-> env
+                                             keys
+                                             set) goal)]
     (when-let [async-goal (some #(-> %
                                      :goal-meta
                                      keys
@@ -423,22 +423,57 @@
 
 (def contextes (atom {}))
 
+(defn ensure-context-for
+  [ns-sym context-id goal-param env-keys-set]
+  (or (get @contextes context-id)
+      (let [ns (find-ns ns-sym)
+            goal-map (goal-param-goal-map ns goal-param)
+            graph (discover-dependencies env-keys-set goal-map)
+            used-from-env (->> graph
+                               :walk-goal-list
+                               (mapcat goal-map-dep-goal-maps)
+                               (filter (comp env-keys-set :goal-local))
+                               distinct
+                               (remove (comp (set async-callbacks)
+                                             :goal-local))
+                               (map (juxt :goal-local identity))
+                               (into {}))
+            starters (->> graph
+                          :walk-goal-list
+                          (filter #(when (contains? (-> % :goal-meta) :arglists)
+                                     (let [arglists (-> % :goal-meta :arglists)]
+                                       (and (= 1 (count arglists))
+                                            (-> arglists first empty?))))))
+            ctx {:ns ns
+                 :graph graph
+                 :starters starters
+                 :used-from-env used-from-env
+                 :goal-map goal-map}]
+        (swap! contextes assoc context-id ctx)
+        ctx)))
+
 (defn run-make<>
-  [goal-param ctx-id env-bindings]
-  (let [result (a/chan 1)
-        ctx-atom (atom @(get @contextes ctx-id))            ;clone compile time context
-        used-from-env (:used-from-env @ctx-atom)]
-    (swap! ctx-atom assoc :result [false result])
-    (doseq [goal-map (:starters @ctx-atom)]
-      (execute-goal ctx-atom goal-map))
-    (doseq [[local val] env-bindings]
-      (receive-goal ctx-atom (get used-from-env local) val))
-    result))
+  [goal-param ns-sym ctx-id env-bindings]
+  (binding [*maker-ns* (find-ns ns-sym)]                    ;TODO remove
+    (let [result (a/chan 1)
+          ctx-atom (atom (ensure-context-for ns-sym
+                                             ctx-id
+                                             goal-param
+                                             (->> env-bindings
+                                                  (map first)
+                                                  set)))    ;clone cached context
+          used-from-env (:used-from-env @ctx-atom)]
+      (swap! ctx-atom assoc :result [false result])
+      (doseq [goal-map (:starters @ctx-atom)]
+        (execute-goal ctx-atom goal-map))
+      (doseq [[local val] env-bindings]
+        (receive-goal ctx-atom (get used-from-env local) val))
+      result)))
 
 (defmacro make<>
   ([goal-param]
    (let [goal-map (goal-param-goal-map *ns* goal-param)
-         graph (discover-dependencies &env goal-map)
+         graph (discover-dependencies (keys &env) goal-map)
          env (or &env {})
          used-from-env (->> graph
                             :walk-goal-list
@@ -456,13 +491,14 @@
                                     (and (= 1 (count arglists))
                                          (-> arglists first empty?))))))
          ctx-id (gensym goal-param)]
-     (swap! contextes assoc ctx-id
-            (atom {:ns *ns*
-                   :graph graph
-                   :starters starters
-                   :used-from-env used-from-env
-                   :goal-map goal-map}))
+     #_(swap! contextes assoc ctx-id
+              (atom {:ns *ns*
+                     :graph graph
+                     :starters starters
+                     :used-from-env used-from-env
+                     :goal-map goal-map}))
      `(run-make<> ~(list 'quote goal-param)
+                  ~(list 'quote (ns-name *ns*))
                   ~(list 'quote ctx-id)
                   ~(->> used-from-env
                         (map (comp first))
