@@ -442,10 +442,9 @@
             used-from-env (filter-used-goals graph env-keys-set)
             starters (->> graph
                           :walk-goal-list
-                          (filter #(when (contains? (-> % :goal-meta) :arglists)
-                                     (let [arglists (-> % :goal-meta :arglists)]
-                                       (and (= 1 (count arglists))
-                                            (-> arglists first empty?))))))
+                          (filter #(when-let [arglists (-> % :goal-meta :arglists)]
+                                     (and (= 1 (count arglists))
+                                          (-> arglists first empty?)))))
             ctx {:ns ns
                  :graph graph
                  :starters starters

@@ -26,7 +26,7 @@
          (let [simple (simple*)]
            simple))))
 
-;; to define a maker function just put '*' at the end of name.
+;; to define a maker function just puts '*' at the end of name.
 (defn other*
   [simple]
   (str simple "-other"))
