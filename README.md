@@ -94,7 +94,7 @@ issue in the next 3 minutes.
 
 ## Usage, learn
 ```clj
-[maker "2.0.0-SNAPSHOT"] ;;after git clone, lein install
+[maker "2.0.0"]
 ```
 To learn [check out](test/maker/core_test.clj) and play with the didactic tests.
 
