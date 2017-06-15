@@ -352,14 +352,12 @@
 
 (defn put-to-result
   [ctx-atom v]
-  (locking ctx-atom
-    (-> @ctx-atom
-        :result
-        second
-        (a/put! v (fn [not-closed] (if not-closed
-                                     (swap! ctx-atom update-in [:result 0] not)
-                                     (throw (ex-info "Result channel is closed"
-                                                     {:ctx @ctx-atom}))))))))
+  (let [result-ch (-> @ctx-atom :result second)]
+    (locking ctx-atom
+      (if (a/put! result-ch v)
+        (swap! ctx-atom update-in [:result 0] not)
+        (throw (ex-info "Result channel is closed"
+                        {:ctx @ctx-atom}))))))
 
 (defn has-result
   [ctx-atom]
@@ -436,22 +434,24 @@
 (defn ensure-context-for
   [ns-sym context-id goal-param env-keys-set]
   (or (get @contextes context-id)
-      (let [ns (find-ns ns-sym)
-            goal-map (goal-param-goal-map ns goal-param)
-            graph (discover-dependencies env-keys-set goal-map)
-            used-from-env (filter-used-goals graph env-keys-set)
-            starters (->> graph
-                          :walk-goal-list
-                          (filter #(when-let [arglists (-> % :goal-meta :arglists)]
-                                     (and (= 1 (count arglists))
-                                          (-> arglists first empty?)))))
-            ctx {:ns ns
-                 :graph graph
-                 :starters starters
-                 :used-from-env used-from-env
-                 :goal-map goal-map}]
-        (swap! contextes assoc context-id ctx)
-        ctx)))
+      (locking context-id
+        (or (get @contextes context-id)
+            (let [ns (find-ns ns-sym)
+                  goal-map (goal-param-goal-map ns goal-param)
+                  graph (discover-dependencies env-keys-set goal-map)
+                  used-from-env (filter-used-goals graph env-keys-set)
+                  starters (->> graph
+                                :walk-goal-list
+                                (filter #(when-let [arglists (-> % :goal-meta :arglists)]
+                                           (and (= 1 (count arglists))
+                                                (-> arglists first empty?)))))
+                  ctx {:ns ns
+                       :graph graph
+                       :starters starters
+                       :used-from-env used-from-env
+                       :goal-map goal-map}]
+              (swap! contextes assoc context-id ctx)
+              ctx)))))
 
 (defn run-make<>
   [goal-param ns-sym ctx-id env-bindings]
