@@ -217,9 +217,24 @@
 ;;make<> will resolve the dependencies asynchronously, in parallel and returns
 ;;a channel.
 (deftest test-async
-  (let [n 10]
-    (is (= n
-           (-> contents make<> a/<!! count)))))
+  (let [n 100
+        m 100]
+    (is (= (repeat m n)
+           (->> (range m)
+                (map (fn [_] (future (-> contents make<> a/<!! count))))
+                (map deref))))))
+
+;-------------------------------------------------------------------------------
+;simple async
+
+(defgoal<> single-async
+  []
+  (let [ch (a/promise-chan)]
+    (a/put! ch 1)
+    ch))
+
+(deftest test-single-async
+  (is (= 1 (a/<!! (make<> single-async)))))
 
 ;-------------------------------------------------------------------------------
 ;Example support for reloaded framework.
