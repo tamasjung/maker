@@ -337,7 +337,7 @@
                       dec)
      :dep-index (->> deps
                      (map-indexed (comp vec reverse vector))
-                     (into {}))
+                   (into {}))
      :dep-values (-> deps count (repeat nil) vec)}))
 
 (defn add-dep-value
@@ -502,7 +502,7 @@
                   ~(list 'quote (ns-name *ns*))
                   ~(list 'quote ctx-id)
                   ~(->> used-from-env
-                        (map (comp first))
+                        (map first)
                         (map #(vector (list 'quote %)
                                       %))
                         vec)))))
