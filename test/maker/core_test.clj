@@ -277,6 +277,7 @@
 ;-------------------------------------------------------------------------------
 
 (deftest missing-def
+
   (try
     (eval '(do (use 'maker.core)
                (defgoal a [b])
@@ -284,13 +285,22 @@
     (is false)
     (catch Throwable ei
       (is (-> ei ex-data :goal-map :goal-local (= 'b)))))
+
   (try
     (eval '(do (use 'maker.core)
-               (defgoal<> a [b])
-               (make<> a)))
+               (defgoal<> aa [bb])
+               (make<> aa)))
     (is false)
     (catch Throwable ei
-      (is (-> ei ex-data :goal-map :goal-local (= 'b))))))
+      (is (-> ei ex-data :goal-map :goal-local (= 'bb)))))
+
+  (try
+    (eval '(do (use 'maker.core)
+               (defgoal? aaaa)
+               (make aaaa)))
+    (is false)
+    (catch Throwable ei
+      (is (-> ei ex-data :goals (= ['aaaa]))))))
 
 ;-------------------------------------------------------------------------------
 
@@ -319,6 +329,20 @@
 
 ;-------------------------------------------------------------------------------
 
+(defgoal? g0)
+
+(defgoal g1 [g0] 1)
+
+(defgoal g2
+  [?]
+  (make g1)
+  (make g1))
+
+(deftest no-double-param
+  (is (= (-> g2* var meta :arglists first)
+         ['g0])))
+
+;-------------------------------------------------------------------------------
 (deftest munge-test
   (are [s res] (-> s inj-munge (= res))
                "aa" "aa"

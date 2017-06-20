@@ -5,7 +5,6 @@
   [children-fn]
   (let [deps (memoize (fn
                         [deps-fn node]
-                        (prn node)
                         (let [children (children-fn node)]
                           (into children
                                 (mapcat (partial deps-fn deps-fn) children)))))]

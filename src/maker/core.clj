@@ -17,24 +17,16 @@
       (string/replace "_" "+_")
       (string/replace "." "_")))
 
-(def maker-postfix \*)
-
 (def async-callbacks ['yield])
 
-(defn but-last-char
+(defn with-maker-postfix
   [s]
-  (subs s 0 (-> s count dec)))
+  (str s \*))
 
-(def escape-set #{\* \+})
-
-(defn without-end
-  [s end-char]
-  (when (re-find (re-pattern (str (when (escape-set end-char)
-                                    "\\")
-                                  end-char
-                                  "$"))
-                 s)
-    (but-last-char s)))
+(defn without-maker-postfix
+  [s]
+  (when (re-find #"\*$" s)
+    (subs s 0 (-> s count dec))))
 
 (defn whole-param
   "Returns the ':as' symbol or itself"
@@ -70,11 +62,6 @@
            (string/join "/")
            symbol))))
 
-(defn local-dep-symbol
-  "Returns the local bind symbol for a dependency"
-  [goal-map]
-  (:goal-local goal-map))
-
 (def ^:dynamic *maker-ns* nil)
 
 (defn goal-param-goal-local
@@ -100,9 +87,9 @@
   [ns goal-param]
   (when goal-param
     (let [whole-p (whole-param goal-param)
-          refered-goal-name (-> whole-p
-                                (str maker-postfix))
-          goal-var (-> refered-goal-name
+          referred-goal-name (-> whole-p
+                                 with-maker-postfix)
+          goal-var (-> referred-goal-name
                        symbol
                        (resolve-in ns))]
       (if-not goal-var
@@ -110,7 +97,7 @@
         {:goal-var goal-var
          :goal-local (goal-param-goal-local
                        (-> goal-var meta :ns)
-                       (-> goal-var meta :name str (without-end maker-postfix)))
+                       (-> goal-var meta :name str (without-maker-postfix)))
          :goal-meta (meta goal-var)}))))
 
 (defn goal-map-dep-goal-maps
@@ -175,22 +162,11 @@
                 :circular-dep disj goal)))
     state))
 
-(declare make-internal)
-
 (defn goal-maker-call
   [goal-map goal-deps]
   `(~(or (goal-maker-symbol goal-map)
          (throw (ex-info "Missing goal definition" {:goal-map goal-map})))
-     ~@(map local-dep-symbol goal-deps)))
-
-(defn dependants-set
-  [{:keys [rev-dep-goals]} item-goal-list]
-  (letfn [(add-dependants [result dep-goal]
-            (->> dep-goal
-                 (get rev-dep-goals)
-                 (map (partial add-dependants result))
-                 (reduce into #{dep-goal})))]
-    (reduce add-dependants #{} item-goal-list)))
+     ~@(map :goal-local goal-deps)))
 
 (defn handle-goal
   [goal in-state]
@@ -198,7 +174,7 @@
         dependencies-state (run-on-goals in-state dep-goals)]
     (-> dependencies-state
         (combine-maker-state
-          {:bindings {goal [(local-dep-symbol goal) (goal-maker-call goal
+          {:bindings {goal [(:goal-local goal) (goal-maker-call goal
                                                                      dep-goals)]}
            :rev-dep-goals (->> dep-goals
                                (map #(vector % [goal]))
@@ -206,31 +182,49 @@
            :walk-goal-list [goal]
            :local-env #{(:goal-local goal)}}))))
 
-(defn make-internal
-  [{:keys [walk-goal-list bindings] :as _state} goal]
-  `(let [~@(->> walk-goal-list
-                reverse
-                (map bindings)
-                (reduce into []))]
-     ~(local-dep-symbol goal)))
-
 (def ^:dynamic *non-local-deps* nil)
 
-(defn local-dependants
+(defn make-internal
+  [{:keys [walk-goal-list bindings] :as _state} goal]
+  (let [local-defs (->> walk-goal-list
+                        reverse
+                        (map bindings)
+                        (reduce into []))
+        only-decl (->> walk-goal-list
+                       (filter (comp not :arglists :goal-meta)))]
+    (when (and (not *non-local-deps*)
+               (seq only-decl))
+      (throw (ex-info "Undefined goals" {:goals (mapv :goal-local only-decl)
+                                         :for goal})))
+
+    `(let [~@(->> local-defs
+                  (drop-last 2))]
+       ~(->> local-defs
+             (take-last 2)
+             second))))
+
+(defn rev-deps-set
+  [{:keys [rev-dep-goals]} goal-list]
+  (->> goal-list
+       (mapcat (graph/dependents rev-dep-goals))
+       (into goal-list)
+       set))
+
+(defn local-rev-deps
   [state env ns]
   (let [local-goals (->> env
                          keys
                          (map (partial goal-param-goal-map ns))
                          (remove on-the-fly?))]
-    (dependants-set state local-goals)))
+    (rev-deps-set state local-goals)))
 
 (defn collect-non-local-deps!
   [env ns {:keys [rev-dep-goals] :as state} goal]
   (when *non-local-deps*
-    (let [local-dependants (local-dependants state env ns)
+    (let [local-rev-deps-set (local-rev-deps state env ns)
           minimal-non-local-goal-set
           ((graph/border-fn goal-map-dep-goal-maps
-                            (complement local-dependants))
+                            (complement local-rev-deps-set))
             goal)]
       (set! *non-local-deps*
             (into *non-local-deps* minimal-non-local-goal-set)))))
@@ -271,7 +265,7 @@
 (defn with-goal-meta
   [name]
   (with-meta (-> name
-                 (str maker-postfix)
+                 with-maker-postfix
                  symbol)
              (meta name)))
 
@@ -300,7 +294,9 @@
       (apply list
              'defn
              (with-goal-meta name)
-             (params-fn (comp #(into additional-params %)
+             (params-fn (comp vec
+                              distinct
+                              #(into additional-params %)
                               rest)
                         fdecl)))
     (apply list
@@ -330,11 +326,11 @@
 (declare execute-goal)
 
 (defn initial-async-state
-  [goal]
-  (let [deps (goal-map-dep-goal-maps goal)]
+  [goal-map]
+  (let [deps (goal-map-dep-goal-maps goal-map)]
     (when-not (< (count deps) 63)
       (throw (ex-info "The number of dependencies has to be less than 63"
-                      {:goal goal})))
+                      {:goal-map goal-map})))
     {:ready-bits (->> deps
                       count
                       (bit-shift-left 1)
@@ -539,7 +535,7 @@
   (assert (-> pairs count even?))
   `(let [~@(->> pairs
                 (partition 2)
-                (map (juxt (comp local-dep-symbol
+                (map (juxt (comp :goal-local
                                  (partial goal-param-goal-map *ns*)
                                  first)
                            second))
