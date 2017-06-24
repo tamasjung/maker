@@ -195,6 +195,9 @@
     (when (and (not *non-local-deps*)
                (seq only-decl))
       (throw (ex-info "Undefined goals" {:goals (mapv :goal-local only-decl)
+                                         :local-defs (->> only-decl
+                                                          (partition-all 2)
+                                                          (map vec))
                                          :for goal})))
 
     `(let [~@(->> local-defs
