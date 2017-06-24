@@ -26,12 +26,12 @@
          (let [simple (simple*)]
            simple))))
 
-;; to define a maker function just puts '*' at the end of name.
+;; to define a maker function just put a '*' at the end of name.
 (defn other*
   [simple]
   (str simple "-other"))
 
-;; the defgoal macro put '*' at the end of the maker function
+;; the defgoal macro put '*' at the end of the goal name
 (defgoal another
   "Just another goal but now using the defgoal - the same effect."
   [other]
@@ -84,7 +84,7 @@
   (swap! call-counter inc)
   2)
 
-;; the next is a declaration of a goal
+;; the next is a declaration of a goal without definition
 (defgoal? iterator-item)
 
 (defn iterator-items*
@@ -112,7 +112,7 @@
 
 ;;The new thing here is the dynamic/implicit parameter list. Maker checks the
 ;;first parameter, if it is '?' then it extends the parameter list with the
-;;neccessary dependency goals. Check with macroexpansion: 'factor' appears as an
+;;necessary dependency goals. Check with macroexpansion: 'factor' appears as an
 ;;implicit dependency and created in an upper level.
 ;;Compare with collected-items above.
 (defgoal another-collected-items
@@ -222,7 +222,10 @@
     (is (= (repeat m n)
            (->> (range m)
                 (map (fn [_] (future (-> contents make<> a/<!! count))))
-                (map deref))))))
+                (map deref)))))
+  (let [n 1]
+    (is (= #_(make contents)
+           ""))))
 
 ;-------------------------------------------------------------------------------
 ;simple async
