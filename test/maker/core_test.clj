@@ -194,7 +194,7 @@
 
 (defgoal? url)
 
-;;For defgoal<- the return value is given by calling the yield callback.
+;;For defgoal<- the return value is given by the yield callback.
 (defgoal<- content
   [url]
   (future
@@ -222,10 +222,12 @@
     (is (= (repeat m n)
            (->> (range m)
                 (map (fn [_] (future (-> contents make<> a/<!! count))))
-                (map deref)))))
-  (let [n 1]
-    (is (= #_(make contents)
-           ""))))
+                (map deref))))
+    (is (= (count (make urls))
+           n)))
+  (let [url "u"]
+    (is (= (make content)
+           "ucontent"))))
 
 ;-------------------------------------------------------------------------------
 ;simple async
@@ -280,23 +282,21 @@
 ;-------------------------------------------------------------------------------
 
 (deftest missing-def
-
   (try
     (eval '(do (use 'maker.core)
                (defgoal a [b])
                (make a)))
     (is false)
     (catch Throwable ei
-      (is (-> ei ex-data :goal-map :goal-local (= 'b)))))
+      (is (-> ei ex-data :goal-param (= 'b)))))
 
   (try
     (eval '(do (use 'maker.core)
                (defgoal<> aa [bb])
-               (make<> aa)))
+               (prn "hey" (clojure.core.async/<!! (make<> aa)))))
     (is false)
     (catch Throwable ei
-      (is (-> ei ex-data :goal-map :goal-local (= 'bb)))))
-
+      (is (-> ei (.getCause) ex-data :goal-param  (= 'bb)))))
   (try
     (eval '(do (use 'maker.core)
                (defgoal? aaaa)
@@ -322,10 +322,6 @@
 (deftest error-handling
   (is (thrown-with-msg? Throwable #"oops"
                         (make e2)))
-  (is (thrown-with-msg? Throwable #"async"
-                        (eval '(do (use 'maker.core)
-                                   (defgoal<> a [])
-                                   (make a)))))
 
   (is (thrown? Throwable
                (take?? (make<> e3)))))

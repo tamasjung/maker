@@ -85,7 +85,8 @@
 
 (defn goal-param-goal-map
   [ns goal-param]
-  (when goal-param
+  (when (and goal-param
+             (not= goal-param '?))
     (let [whole-p (whole-param goal-param)
           referred-goal-name (-> whole-p
                                  with-maker-postfix)
@@ -93,6 +94,9 @@
                        symbol
                        (resolve-in ns))]
       (if-not goal-var
+        (throw (ex-info "Unknown goal" {:ns (ns-name ns)
+                                        :goal-param goal-param}))
+        #_
         (on-the-fly-goal-decl ns whole-p)
         {:goal-var goal-var
          :goal-local (goal-param-goal-local
@@ -108,7 +112,7 @@
     (->> g-meta
          :arglists
          first
-         (#(if (-> goal-map :goal-meta ::async-goal-callback)
+         (#(if (-> goal-map :goal-meta ::goal-type (= ::async-goal-callback))
              (drop (count async-callbacks) %)
              %))
          (map (partial goal-param-goal-map ns)))))
@@ -162,10 +166,28 @@
                 :circular-dep disj goal)))
     state))
 
-(defn goal-maker-call
+(defmulti goal-maker-call (fn [goal-map _]
+                            (-> goal-map
+                                :goal-meta
+                                ::goal-type)))
+
+(defmethod goal-maker-call ::async-goal-callback
   [goal-map goal-deps]
-  `(~(or (goal-maker-symbol goal-map)
-         (throw (ex-info "Missing goal definition" {:goal-map goal-map})))
+  `(let [result# (promise)]
+     (~(goal-maker-symbol goal-map)
+       #(deliver result# %)
+       ~@(->> goal-deps
+              (map :goal-local)))
+     @result#))
+
+(defmethod goal-maker-call ::async-goal-channel
+  [goal-map goal-deps]
+  `(clojure.core.async/<!! (~(goal-maker-symbol goal-map)
+                             ~@(map :goal-local goal-deps))))
+
+(defmethod goal-maker-call :default
+  [goal-map goal-deps]
+  `(~(goal-maker-symbol goal-map)
      ~@(map :goal-local goal-deps)))
 
 (defn handle-goal
@@ -175,7 +197,7 @@
     (-> dependencies-state
         (combine-maker-state
           {:bindings {goal [(:goal-local goal) (goal-maker-call goal
-                                                                     dep-goals)]}
+                                                                dep-goals)]}
            :rev-dep-goals (->> dep-goals
                                (map #(vector % [goal]))
                                (into {}))
@@ -238,9 +260,6 @@
       create-maker-state
       (run-on-goals [goal])))
 
-(def async-types #{::async-goal-channel
-                   ::async-goal-callback})
-
 (defmacro make-with
   "Make a goal out of the environment"
   [goal-sym env]
@@ -248,15 +267,6 @@
         end-state (discover-dependencies (-> env
                                              keys
                                              set) goal)]
-    (when-let [async-goal (some #(-> %
-                                     :goal-meta
-                                     keys
-                                     set
-                                     (set/intersection async-types)
-                                     seq)
-                                (:walk-goal-list end-state))]
-      (throw (ex-info "Synchronous make depends on async goal"
-                      {:goal-map async-goal})))
     (collect-non-local-deps! env *ns* end-state goal)
     (-> end-state
         (make-internal goal))))
@@ -315,14 +325,14 @@
 (defmacro defgoal<-
   [name & fdecl]
   (do
-    (apply list 'defgoal (vary-meta name merge {::async-goal-callback true})
+    (apply list 'defgoal (vary-meta name merge {::goal-type ::async-goal-callback})
            (params-fn #(into async-callbacks %)
                       fdecl))))
 
 (defmacro defgoal<>
   [name & fdecl]
   (do
-    (apply list 'defgoal (vary-meta name merge {::async-goal-channel true})
+    (apply list 'defgoal (vary-meta name merge {::goal-type ::async-goal-channel})
            (params-fn identity
                       fdecl))))
 
@@ -340,7 +350,7 @@
                       dec)
      :dep-index (->> deps
                      (map-indexed (comp vec reverse vector))
-                   (into {}))
+                     (into {}))
      :dep-values (-> deps count (repeat nil) vec)}))
 
 (defn add-dep-value
@@ -414,20 +424,20 @@
                                    (partial receive-goal-value
                                             ctx-atom
                                             goal-map))]
-                    (let [meta (-> goal-map :goal-meta)]
-                      (cond
-                        (::async-goal-channel meta)
-                        (a/go (-> goal-map
-                                  :goal-var
-                                  (apply deps)
-                                  (a/<!)
-                                  yield-fn))
 
-                        (::async-goal-callback meta)
-                        (apply (:goal-var goal-map) (into [yield-fn] deps))
+                    (case (-> goal-map :goal-meta ::goal-type)
 
-                        :default
-                        (yield-fn (apply (:goal-var goal-map) deps)))))
+                      ::async-goal-channel
+                      (a/go (-> goal-map
+                                :goal-var
+                                (apply deps)
+                                (a/<!)
+                                yield-fn))
+
+                      ::async-goal-callback
+                      (apply (:goal-var goal-map) (into [yield-fn] deps))
+
+                      (yield-fn (apply (:goal-var goal-map) deps))))
                   (catch Throwable th
                     (receive-goal-error ctx-atom goal-map th)))))))
 
