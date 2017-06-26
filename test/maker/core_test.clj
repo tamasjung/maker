@@ -5,11 +5,15 @@
             [clojure.string :as string]
             [ns2 :refer [ns2a*]]
             [ns1 :refer [ns1a*]]
-            [clojure.core.async :as a])
+            [clojure.core.async :as a]
+            [clojure.spec.test.alpha :as stest]
+            [maker.doc-spec])
   (:import (clojure.lang ExceptionInfo)))
 
 ;-------------------------------------------------------------------------------
 
+(stest/instrument `make-internal)
+(stest/instrument `ctx-has-result)
 (defn simple*
   []
   "simple")
@@ -131,6 +135,12 @@
   ;;'factor' is made in the 'right' place and called only once
   (is (= @call-counter 1)))
 
+(deftest test-spec
+  (eval '(do (use 'maker.core)
+             (defgoal sb [])
+             (defgoal sa [sb] 1)
+             (make sa))))
+
 ;-------------------------------------------------------------------------------
 
 (defn m* [] {:a 1 :b 2})
@@ -221,7 +231,8 @@
         m 100]
     (is (= (repeat m n)
            (->> (range m)
-                (map (fn [_] (future (-> contents make<> a/<!! count))))
+                (map (fn [_] (future (-> contents make<> (take-in?? 1000)
+                                         count))))
                 (map deref))))
     (is (= (count (make urls))
            n)))

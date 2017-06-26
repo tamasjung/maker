@@ -389,8 +389,8 @@
                         {:ctx @ctx-atom}))))))
 
 (defn has-result
-  [ctx-atom]
-  (-> @ctx-atom
+  [ctx]
+  (-> ctx
       :result
       first))
 
@@ -406,7 +406,7 @@
   [ctx-atom goal-map result]
   (.execute *executor*
             (bound-fn _goal-executor-fn []                  ;TBD do we want/need bound-fn later without *maker-ns*?
-              (when-not (has-result ctx-atom)
+              (when-not (has-result @ctx-atom)
                 (try
                   (let [deps (:dep-values result)
                         yield-fn (if (-> @ctx-atom :goal-map (= goal-map))
