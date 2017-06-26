@@ -2,11 +2,12 @@
   (:require [maker.core :as m]
             [clojure.spec.alpha :as s]
             [clojure.future :refer :all]))
+
 (s/def ::goal-var var?)
 (s/def ::goal-local symbol?)
 (s/def ::goal-meta map?)
-(s/def ::goal-map (s/keys :req-un [::goal-local]
-                          :opt-un [::goal-var
+(s/def ::goal-map (s/keys :req-un [::goal-local
+                                   ::goal-var
                                    ::goal-meta]))
 (s/def ::ready-bits int?)
 (s/def ::dep-index (s/map-of ::goal-map int?))
