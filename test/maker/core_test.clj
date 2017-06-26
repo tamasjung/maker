@@ -14,6 +14,7 @@
 
 (stest/instrument `make-internal)
 (stest/instrument `ctx-has-result)
+
 (defn simple*
   []
   "simple")
