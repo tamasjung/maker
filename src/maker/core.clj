@@ -76,13 +76,6 @@
           inj-munge
           symbol))))
 
-(defn on-the-fly-goal-decl
-  [ns whole-param-name]
-  (let [s (goal-param-goal-local ns whole-param-name)]
-    {:goal-local s}))
-
-(def on-the-fly? (complement :goal-var))
-
 (defn goal-param-goal-map
   [ns goal-param]
   (when (and goal-param
@@ -96,8 +89,6 @@
       (if-not goal-var
         (throw (ex-info "Unknown goal" {:ns (ns-name ns)
                                         :goal-param goal-param}))
-        #_
-        (on-the-fly-goal-decl ns whole-p)
         {:goal-var goal-var
          :goal-local (goal-param-goal-local
                        (-> goal-var meta :ns)
@@ -239,8 +230,7 @@
   [state env ns]
   (let [local-goals (->> env
                          keys
-                         (map (partial goal-param-goal-map ns))
-                         (remove on-the-fly?))]
+                         (map (partial goal-param-goal-map ns)))]
     (rev-deps-set state local-goals)))
 
 (defn collect-non-local-deps!
@@ -481,6 +471,17 @@
                                      (into (vals used-from-env))
                                      (map (juxt identity initial-async-state))
                                      (into {}))}]
+              (when-let [undefineds (->> graph
+                                         :walk-goal-list
+                                         (remove (->> used-from-env
+                                                      vals
+                                                      set))
+                                         (remove (comp :arglists :goal-meta))
+                                         (map (juxt :goal-local
+                                                    :goal-meta))
+                                         seq)]
+                (throw (ex-info "Undefined goals"
+                                {:undefineds undefineds})))
               (swap! contextes assoc context-id ctx)
               ctx)))))
 
@@ -524,17 +525,17 @@
   "Throw throwable, return param otherwise."
   [in]
   (if (instance? Throwable in)
-    (throw (ex-info "Value is a Throwable" {} in))
+    (throw (ex-info "Value is Throwable" {} in))
     in))
 
 (defn valid??
   [sth]
   (cond
     (nil? sth)
-    (throw (ex-info "Nil is invalid here." {}))
+    (throw (ex-info "Nil is invalid." {}))
 
     (instance? Throwable sth)
-    (throw (ex-info "Value is throwable" {} sth))
+    (throw (ex-info "Value is Throwable" {} sth))
 
     :default
     sth))
@@ -542,6 +543,11 @@
 (defn take??
   [ch]
   (valid?? (a/<!! ch)))
+
+(defn take-in??
+  ([ch msec]
+   (valid?? (a/alt!! ch ([v] v)
+                     (a/timeout msec) ([] (ex-info "Timed out" {:ch (str ch)}))))))
 
 (defmacro with-goals
   [pairs & body]

@@ -288,22 +288,32 @@
                (make a)))
     (is false)
     (catch Throwable ei
-      (is (-> ei ex-data :goal-param (= 'b)))))
+      (is (= 'b (-> ei ex-data :goal-param)))))
 
   (try
     (eval '(do (use 'maker.core)
                (defgoal<> aa [bb])
-               (prn "hey" (clojure.core.async/<!! (make<> aa)))))
+               (clojure.core.async/<!! (make<> aa))))
     (is false)
     (catch Throwable ei
-      (is (-> ei (.getCause) ex-data :goal-param  (= 'bb)))))
+      (is (= 'bb (-> ei (.getCause) ex-data :goal-param)))))
+
+  (try
+    (eval '(do (use 'maker.core)
+               (defgoal? bbb)
+               (defgoal<> aaa [bbb])
+               (take-in?? (make<> aaa) 1000)))
+    (is false)
+    (catch Throwable ei
+      (is (= 'bbb (-> ei ex-data :undefineds ffirst)))))
+
   (try
     (eval '(do (use 'maker.core)
                (defgoal? aaaa)
                (make aaaa)))
     (is false)
     (catch Throwable ei
-      (is (-> ei ex-data :goals (= ['aaaa]))))))
+      (is (= ['aaaa] (-> ei ex-data :goals))))))
 
 ;-------------------------------------------------------------------------------
 
