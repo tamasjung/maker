@@ -7,13 +7,13 @@
             [ns1 :refer [ns1a*]]
             [clojure.core.async :as a]
             [clojure.spec.test.alpha :as stest]
-            [maker.doc-spec])
+            [maker.core-spec])
   (:import (clojure.lang ExceptionInfo)))
 
 ;-------------------------------------------------------------------------------
 
 (stest/instrument `make-internal)
-(stest/instrument `ctx-has-result)
+(stest/instrument `has-result)
 
 (defn simple*
   []
@@ -251,7 +251,7 @@
     ch))
 
 (deftest test-single-async
-  (is (= 1 (a/<!! (make<> single-async)))))
+  (is (= 1 (take-in?? (make<> single-async) 1000))))
 
 ;-------------------------------------------------------------------------------
 ;Example support for reloaded framework.

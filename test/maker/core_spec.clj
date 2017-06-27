@@ -1,4 +1,4 @@
-(ns maker.doc-spec
+(ns maker.core-spec
   (:require [maker.core :as m]
             [clojure.spec.alpha :as s]
             [clojure.future :refer :all]))
@@ -27,12 +27,12 @@
                                       ::rev-dep-goals
                                       ::walk-goal-list
                                       ::local-env]))
-(s/def ::ns any?)
+(s/def ::ns (partial instance? clojure.lang.Namespace))
 (s/def ::graph ::maker-state)
 (s/def ::starters ::goal-maps)
 (s/def ::used-from-env (s/map-of ::goal-local ::goal-map))
 (s/def ::results (s/map-of ::goal-map any?))
-(s/def ::result (s/tuple string? #_boolean? any?))
+(s/def ::result (s/tuple boolean? identity))
 (s/def ::async-ctx (s/keys :req-un [::ns
                                     ::graph
                                     ::starters
@@ -42,7 +42,7 @@
                                     ::result]))
 
 (s/fdef m/has-result
-        :args (s/cat :ctx ::async-ctx :goal ::goal-map)
+        :args (s/cat :ctx ::async-ctx)
         :ret boolean?)
 
 (s/fdef m/make-internal

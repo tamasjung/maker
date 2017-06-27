@@ -406,8 +406,9 @@
   [ctx-atom goal-map result]
   (.execute *executor*
             (bound-fn _goal-executor-fn []                  ;TBD do we want/need bound-fn later without *maker-ns*?
-              (when-not (has-result @ctx-atom)
-                (try
+              (try
+                (when-not (has-result @ctx-atom)
+
                   (let [deps (:dep-values result)
                         yield-fn (if (-> @ctx-atom :goal-map (= goal-map))
                                    (partial put-to-result ctx-atom)
@@ -427,9 +428,9 @@
                       ::async-goal-callback
                       (apply (:goal-var goal-map) (into [yield-fn] deps))
 
-                      (yield-fn (apply (:goal-var goal-map) deps))))
-                  (catch Throwable th
-                    (receive-goal-error ctx-atom goal-map th)))))))
+                      (yield-fn (apply (:goal-var goal-map) deps)))))
+                (catch Throwable th
+                  (receive-goal-error ctx-atom goal-map th))))))
 
 (defn filter-used-goals
   [graph goal-local-pred]
