@@ -38,7 +38,7 @@ we should try to force something like this
 In the former `b` depends on function `a` function. If `a` needs a new parameter
 then `b` needs too. Let's imagine this is much deeper call stack, any change in
 the bottom causes catastrophic escalation. Even worse when you realize that you
-want to make the computation in `a`asynchronous. Not so when you defer this
+want to make the computation `a` asynchronous. Not so when you defer this
 dependency up to higher level, to c* in our case.
 
 We are not programming this way because the potentially big `let` is rather
