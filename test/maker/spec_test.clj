@@ -8,7 +8,7 @@
             [clojure.future :refer :all])
   (:import (clojure.lang ExceptionInfo)))
 
-(defgoal? ^{:spec int?} a)
+(defgoal? a)
 
 (ms/def a int?)
 
@@ -17,6 +17,9 @@
 (ms/fdef b string?)
 
 (defgoal nospec [])
+
+;;unfortunately  there is no spec for nospec yet :(
+;;it will be `any?` by default instead of a NPE if you don't mind :)
 
 (defgoal c
   [a b nospec]
@@ -34,4 +37,3 @@
   (is (thrown-with-msg? ExceptionInfo #"not conform"
                         (let [a "a"]
                           (make c)))))
-
