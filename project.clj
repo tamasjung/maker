@@ -7,4 +7,5 @@
                  [org.clojure/core.async "0.3.442"]
                  [clojure-future-spec "1.9.0-alpha17"]]
   :source-paths ["src"]
-  :profiles {:dev {:dependencies [[criterium "0.4.4"]]}})
+  :profiles {:dev {:dependencies [[criterium "0.4.4"]
+                                  [org.clojure/test.check "0.9.0"]]}})
