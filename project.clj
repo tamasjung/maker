@@ -1,5 +1,5 @@
 (defproject maker "2.0.2-alpha"
-  :description "Maker is a macro for resolving dependencies between plain functions."
+  :description "Clojure library to explore inversion of control technique - in several senses."
   :url "https://github.com/tamasjung/maker"
   :license {:name "MIT License"
             :url "http://opensource.org/licenses/MIT"}
