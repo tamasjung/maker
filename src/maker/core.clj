@@ -353,40 +353,40 @@
           (assoc-in [:dep-values idx] goal-val)))))
 
 (defn exec-if-ready
-  [ctx-atom goal-map result]
+  [ctx-agent goal-map result]
   (if (-> result :ready-bits (= 0))
     (do
-      (execute-goal ctx-atom goal-map result)
+      (execute-goal ctx-agent goal-map result)
       nil)
     result))
 
 (defn receive-goal-value
-  [ctx-atom goal-map goal-val]
-  (swap! ctx-atom update :results
-         (fn [results]
-           (->> goal-map
-                (get (-> @ctx-atom
-                         :graph
-                         :rev-dep-goals))
-                (reduce (fn [results-acc dep-goal-map]
-                          (update results-acc
-                                  dep-goal-map
-                                  (comp (partial exec-if-ready
-                                                 ctx-atom
-                                                 dep-goal-map)
-                                        add-dep-value)
-                                  goal-map
-                                  goal-val))
-                        results)))))
+  [ctx-agent goal-map goal-val]
+  (send ctx-agent
+        (fn [ctx]
+          (assoc ctx :results
+                     (->> goal-map
+                          (get (-> ctx
+                                   :graph
+                                   :rev-dep-goals))
+                          (reduce (fn [results-acc dep-goal-map]
+                                    (update results-acc
+                                            dep-goal-map
+                                            (comp (partial exec-if-ready
+                                                           ctx-agent
+                                                           dep-goal-map)
+                                                  add-dep-value)
+                                            goal-map
+                                            goal-val))
+                                  (:results ctx)))))))
 
 (defn put-to-result
-  [ctx-atom v]
-  (let [result-ch (-> @ctx-atom :result second)]
-    (locking ctx-atom
-      (if (a/put! result-ch v)
-        (swap! ctx-atom update-in [:result 0] not)
-        (throw (ex-info "Result channel is closed"
-                        {:ctx @ctx-atom}))))))
+  [ctx-agent v]
+  (let [result-ch (-> @ctx-agent :result second)]
+    (if (a/put! result-ch v)
+      (send ctx-agent update-in [:result 0] not)
+      (throw (ex-info "Result channel is closed"
+                      {:ctx @ctx-agent})))))
 
 (defn has-result
   [ctx]
@@ -395,25 +395,25 @@
       first))
 
 (defn receive-goal-error
-  [ctx-atom goal err]
-  (put-to-result ctx-atom err))
+  [ctx-agent goal err]
+  (put-to-result ctx-agent err))
 
 (def ^:dynamic *executor* (-> (.. Runtime getRuntime availableProcessors)
                               (+ 2)
                               (Executors/newFixedThreadPool)))
 
 (defn execute-goal
-  [ctx-atom goal-map result]
+  [ctx-agent goal-map result]
   (.execute *executor*
             (bound-fn _goal-executor-fn []                  ;TBD do we want/need bound-fn later without *maker-ns*?
               (try
-                (when-not (has-result @ctx-atom)
+                (when-not (has-result @ctx-agent)
 
                   (let [deps (:dep-values result)
-                        yield-fn (if (-> @ctx-atom :goal-map (= goal-map))
-                                   (partial put-to-result ctx-atom)
+                        yield-fn (if (-> @ctx-agent :goal-map (= goal-map))
+                                   (partial put-to-result ctx-agent)
                                    (partial receive-goal-value
-                                            ctx-atom
+                                            ctx-agent
                                             goal-map))]
 
                     (case (-> goal-map :goal-meta ::goal-type)
@@ -430,7 +430,7 @@
 
                       (yield-fn (apply (:goal-var goal-map) deps)))))
                 (catch Throwable th
-                  (receive-goal-error ctx-atom goal-map th))))))
+                  (receive-goal-error ctx-agent goal-map th))))))
 
 (defn filter-used-goals
   [graph goal-local-pred]
@@ -492,18 +492,19 @@
   [goal-param ns-sym ctx-id env-bindings]
   (binding [*maker-ns* (find-ns ns-sym)]                    ;TODO eliminate binding
     (let [result (a/chan 1)
-          ctx-atom (atom (ensure-context-for ns-sym
-                                             ctx-id
-                                             goal-param
-                                             (->> env-bindings
-                                                  (map first)
-                                                  set)))    ;clone cached context
-          used-from-env (:used-from-env @ctx-atom)]
-      (swap! ctx-atom assoc :result [false result])
-      (doseq [goal-map (:starters @ctx-atom)]
-        (execute-goal ctx-atom goal-map starter-result))
+          ctx-agent (agent (assoc (ensure-context-for ns-sym
+                                                      ctx-id
+                                                      goal-param
+                                                      (->> env-bindings
+                                                           (map first)
+                                                           set))
+                             :result [false result])
+                           :error-handler put-to-result)
+          used-from-env (:used-from-env @ctx-agent)]
+      (doseq [goal-map (:starters @ctx-agent)]
+        (execute-goal ctx-agent goal-map starter-result))
       (doseq [[local val] env-bindings]
-        (receive-goal-value ctx-atom (get used-from-env local) val))
+        (receive-goal-value ctx-agent (get used-from-env local) val))
       result)))
 
 (defmacro make<>

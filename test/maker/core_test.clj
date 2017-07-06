@@ -229,7 +229,7 @@
 ;;a channel.
 (deftest test-async
   (let [n 100
-        m 100]
+        m 10]
     (is (= (repeat m n)
            (->> (range m)
                 (map (fn [_] (future (-> contents make<> (take-in?? 1000)
