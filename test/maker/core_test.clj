@@ -36,7 +36,7 @@
   [simple]
   (str simple "-other"))
 
-;; the defgoal macro put '*' at the end of the goal name
+;; the defgoal macro puts '*' at the end of the goal name
 (defgoal another
   "Just another goal but now using the defgoal - the same effect."
   [other]
@@ -75,10 +75,7 @@
 (deftest test-dynamic-goal
   (is (= (let [dd 1]
            (make goal-with-dyn-dep))
-         11))
-  (is (= (with-goals [dd 2]
-           (make goal-with-dyn-dep))
-         12)))
+         11)))
 
 ;-------------------------------------------------------------------------------
 
