@@ -8,8 +8,8 @@
 It is always better to separate the 'what' from the 'how', it is better to put
 dependency as a value rather than as the result of another function call.
 
-This is an experiment to see what happens if we structuring our system as goals
-(values/things/nouns) and dependencies between them.
+This is an experiment to see what happens if we structure our system as goals
+(values/things/nouns) and dependencies between them. 
 
 ## What is the problem again?
 
@@ -28,11 +28,11 @@ issue in the next 3 minutes.
 ## Features
 
 * dependency tracking by looking for functions based on the names
-of parameters 
+of the parameters 
 * works across namespaces,
 * asynchronous goals, parallel execution,
 * implicit dependencies,
-* support for giving spec for goals efficiently
+* spec for goals
 
 ## Usage, learn
 ```clj
