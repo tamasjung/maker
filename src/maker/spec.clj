@@ -1,7 +1,6 @@
 (ns maker.spec
   (:require [clojure.spec.test.alpha :as stest]
             [clojure.spec.alpha :as s]
-            [clojure.future :refer :all]
             [maker.core :as m]))
 
 (defn goal-map-spec

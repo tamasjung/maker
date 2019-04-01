@@ -4,8 +4,7 @@
             [maker.core :refer :all]
             [clojure.pprint :refer [pprint]]
             [clojure.spec.alpha :as s]
-            [clojure.spec.test.alpha :as stest]
-            [clojure.future :refer :all])
+            [clojure.spec.test.alpha :as stest])
   (:import (clojure.lang ExceptionInfo)))
 
 (defgoal? a)

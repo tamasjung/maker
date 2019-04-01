@@ -1,7 +1,6 @@
 (ns maker.core-spec
   (:require [maker.core :as m]
-            [clojure.spec.alpha :as s]
-            [clojure.future :refer :all]))
+            [clojure.spec.alpha :as s]))
 
 (s/def ::goal-var var?)
 (s/def ::goal-local symbol?)

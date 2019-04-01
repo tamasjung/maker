@@ -3,9 +3,8 @@
   :url "https://github.com/tamasjung/maker"
   :license {:name "MIT License"
             :url "http://opensource.org/licenses/MIT"}
-  :dependencies [[org.clojure/clojure "1.8.0"]
-                 [org.clojure/core.async "0.3.442"]
-                 [clojure-future-spec "1.9.0-alpha17"]]
+  :dependencies [[org.clojure/clojure "1.10.0"]
+                 [org.clojure/core.async "0.4.490"]]
   :source-paths ["src"]
   :profiles {:dev {:dependencies [[criterium "0.4.4"]
-                                  [org.clojure/test.check "0.9.0"]]}})
+                                  #_[org.clojure/test.check "0.9.0"]]}})

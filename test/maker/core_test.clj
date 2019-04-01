@@ -2,7 +2,6 @@
   (:require [clojure.test :refer :all]
             [maker.core :as m :refer :all]
             [clojure.pprint :refer [pprint]]
-            [clojure.string :as string]
             [ns2 :refer [ns2a*]]
             [ns1 :refer [ns1a*]]
             [clojure.core.async :as a]
@@ -211,16 +210,19 @@
 ;; circular dependency is an error at compile time
 
 (deftest circular-dep
-  (is (thrown-with-msg? Throwable #"ircular"
-                        (eval '(do
-                                 (use 'maker.core)
-                                 (defn self*
-                                   [self])
-                                 (make self))))))
+  (is (re-find #"Circular dependency"
+               (try
+
+                 (eval '(do
+                          (use 'maker.core)
+                          (defn self*
+                            [self])
+                          (make self)))
+                 (catch Throwable th
+                   (-> th str))))))
 
 ;-------------------------------------------------------------------------------
 ;;An async example.
-
 (defgoal? n)
 
 ;;For every defgoal<> the return value has to be a channel and maker's duty to
@@ -329,13 +331,13 @@
 ;-------------------------------------------------------------------------------
 
 (deftest missing-def
-  (try
-    (eval '(do (use 'maker.core)
-               (defgoal a [b])
-               (make a)))
-    (is false)
-    (catch Throwable ei
-      (is (= 'b (-> ei ex-data :goal-param)))))
+  (is (re-find #"Unknown goal"
+               (try
+                 (eval '(do (use 'maker.core)
+                            (defgoal a [b])
+                            (make a)))
+                 (catch Throwable ei
+                   (-> ei (.getCause) str)))))
 
   (try
     (eval '(do (use 'maker.core)
@@ -354,13 +356,14 @@
     (catch Throwable ei
       (is (= 'bbb (-> ei ex-data :undefineds ffirst)))))
 
-  (try
-    (eval '(do (use 'maker.core)
-               (defgoal? aaaa)
-               (make aaaa)))
-    (is false)
-    (catch Throwable ei
-      (is (= ['aaaa] (-> ei ex-data :goals))))))
+  (is (= '[aaaa]
+         (try
+           (eval '(do (use 'maker.core)
+                      (defgoal? aaaa)
+                      (make aaaa)
+                      nil))
+           (catch Throwable ei
+             (-> ei (.getCause) ex-data :goals))))))
 
 ;-------------------------------------------------------------------------------
 
