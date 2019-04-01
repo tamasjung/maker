@@ -581,7 +581,7 @@
 
 (defmethod goal-maker-call ::case
   [goal-map goal-deps]
-  (let [cases ((@cases-map-atom) goal-map )]
+  (let [cases (@cases-map-atom goal-map)]
     `(case (~(goal-maker-symbol goal-map)
              ~@(map :goal-local goal-deps))
        ~@(mapcat (fn [[case-item case-goal-map]]
