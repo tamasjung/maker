@@ -48,10 +48,11 @@
                       {:dep dep}))))
 
 (defn resolve-in
-  [symbol ns]
-  (some
-    #(some-> ns % (get symbol))
-    [ns-publics ns-refers]))
+  [sym ns]
+  (or (some
+        #(some-> ns % (get sym))
+        [ns-publics ns-refers])
+      (resolve sym)))
 
 (defn goal-maker-symbol
   "Calculates the goal maker fn's symbol"
@@ -61,6 +62,16 @@
       (->> [ns name]
            (string/join "/")
            symbol))))
+
+(defn goal-symbol
+  "Calculates the goal's namespace qualified symbol"
+  [{:keys [goal-local] :as goal-map}]
+  (let [{:keys [ns]} (:goal-meta goal-map)]
+    (when goal-local
+      (->> [ns goal-local]
+           (string/join "/")
+           symbol))))
+
 
 (def ^:dynamic *maker-ns* nil)
 
@@ -76,24 +87,27 @@
           inj-munge
           symbol))))
 
+(defn goal-map-from-goal-var
+  [goal-var]
+  {:goal-var goal-var
+   :goal-local (goal-param-goal-local
+                 (-> goal-var meta :ns)
+                 (-> goal-var meta :name str without-maker-postfix))
+   :goal-meta (meta goal-var)})
+
 (defn goal-param-goal-map
   [ns goal-param]
   (when (and goal-param
              (not= goal-param '?))
     (let [whole-p (whole-param goal-param)
-          referred-goal-name (-> whole-p
-                                 with-maker-postfix)
+          referred-goal-name (with-maker-postfix whole-p)
           goal-var (-> referred-goal-name
                        symbol
                        (resolve-in ns))]
       (if-not goal-var
         (throw (ex-info "Unknown goal" {:ns (ns-name ns)
                                         :goal-param goal-param}))
-        {:goal-var goal-var
-         :goal-local (goal-param-goal-local
-                       (-> goal-var meta :ns)
-                       (-> goal-var meta :name str (without-maker-postfix)))
-         :goal-meta (meta goal-var)}))))
+        (goal-map-from-goal-var goal-var)))))
 
 (defn goal-map-dep-goal-maps
   "Reads the deps from the goal's meta"
@@ -234,7 +248,7 @@
     (rev-deps-set state local-goals)))
 
 (defn collect-non-local-deps!
-  [env ns {:keys [rev-dep-goals] :as state} goal]
+  [env ns state goal]
   (when *non-local-deps*
     (let [local-rev-deps-set (local-rev-deps state env ns)
           minimal-non-local-goal-set
@@ -562,3 +576,21 @@
                            second))
                 (reduce into []))]
      ~@body))
+
+(def cases-map-atom (atom {}))
+
+(defmethod goal-maker-call ::case
+  [goal-map goal-deps]
+  (let [cases ((@cases-map-atom) goal-map )]
+    `(case (~(goal-maker-symbol goal-map)
+             ~@(map :goal-local goal-deps))
+       ~@(mapcat (fn [[case-item case-goal-map]]
+                   (list case-item `(make ~(goal-symbol case-goal-map)))) cases))))
+
+(defmacro register-case
+  ([dispatcher dispatch-value case-goal]
+   `(swap! cases-map-atom assoc-in [(goal-param-goal-map *ns* '~dispatcher)
+                                    ~dispatch-value]
+           (goal-param-goal-map *ns* '~case-goal)))
+  ([dispatcher case-goal]
+   `(register-case ~dispatcher ~case-goal ~case-goal)))
