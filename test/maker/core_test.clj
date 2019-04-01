@@ -141,6 +141,44 @@
 
 ;-------------------------------------------------------------------------------
 
+(def choice-env*)
+
+(defn choice-dep-a*
+  []
+  1)
+
+(defn choice-dep-b*
+  []
+  2)
+
+
+(defn ^{::m/goal-type ::m/case} choice*
+  [choice-env]
+  choice-env)
+
+(defn choice1*
+  [choice-dep-a]
+  (str choice-dep-a))
+
+(register-case choice :choice1 choice1)
+
+(defn choice2*
+  [choice-dep-b]
+  (str choice-dep-b))
+
+(register-case choice :choice2 choice2)
+
+; b/c choice has the goal type m/case meta, the expansion of creating it will be
+; (case ..) and the return value of 'choice' is used as the dispatcher and the
+; matching cohice (in our case choice1) will be 'made'.
+; Check the expansion of make below.
+(deftest choice-test
+  (is (= (let [choice-env :choice1]
+           (make choice))
+         "1")))
+
+;-------------------------------------------------------------------------------
+
 (defn m* [] {:a 1 :b 2})
 (defn v* [] [11 22])
 
