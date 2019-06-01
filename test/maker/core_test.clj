@@ -269,7 +269,7 @@
         m 10]
     (is (= (repeat m n)
            (->> (range m)
-                (map (fn [_] (future (-> contents make<> (take-in?? 1000)
+                (map (fn [_] (future (-> contents make<> (take-in?? 10000)
                                          count))))
                 (map deref))))
     (is (= (count (make urls))
@@ -319,11 +319,6 @@
   (let [res (make<> err-result)]
     (is (thrown? ExceptionInfo (take-in?? res 10000)))))
 
-#_
-(deftest test-mem-leak
-  (try (take-in?? (make<> err-result) 10000) (catch Throwable _))
-  (try (take-in?? (make<> err-result) 10000) (catch Throwable _))
-  (-> m/contextes deref count (= 0) is))
 ;-------------------------------------------------------------------------------
 ;Example support for reloaded framework.
 

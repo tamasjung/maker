@@ -464,62 +464,53 @@
        (map (juxt :goal-local identity))
        (into {})))
 
-(def contextes (atom {}))
-
-(defn ensure-context-for
-  [ns-sym context-id goal-param env-keys-set]
-  (or (get @contextes context-id)
-      ;double-checked locking
-      (locking context-id
-        (or (get @contextes context-id)
-            (let [ns (find-ns ns-sym)
-                  goal-map (goal-param-goal-map ns goal-param)
-                  graph (discover-dependencies env-keys-set goal-map)
-                  used-from-env (filter-used-goals graph env-keys-set)
-                  starters (->> graph
-                                :walk-goal-list
-                                (filter #(when-let [arglists (-> %
-                                                                 :goal-meta
-                                                                 :arglists)]
-                                           (and (= 1 (count arglists))
-                                                (or
-                                                  (-> arglists first empty?)
-                                                  (and (= ::async-goal-callback
-                                                          (-> %
-                                                              :goal-meta
-                                                              ::goal-type))
-                                                       (-> arglists first count (= 1))))))))
-                  ctx {:ns ns
-                       :graph graph
-                       :starters starters
-                       :used-from-env used-from-env
-                       :goal-map goal-map
-                       :results (->> (:walk-goal-list graph)
-                                     (into (vals used-from-env))
-                                     (map (juxt identity initial-async-state))
-                                     (into {}))}]
-              (when-let [undefineds (->> graph
-                                         :walk-goal-list
-                                         (remove (->> used-from-env
-                                                      vals
-                                                      set))
-                                         (remove (comp :arglists :goal-meta))
-                                         (map (juxt :goal-local
-                                                    :goal-meta))
-                                         seq)]
-                (throw (ex-info "Undefined goals"
-                                {:undefineds undefineds})))
-              (swap! contextes assoc context-id ctx)
-              ctx)))))
+(defn create-context-for
+  [ns-sym goal-param env-keys-set]
+  (let [ns (find-ns ns-sym)
+        goal-map (goal-param-goal-map ns goal-param)
+        graph (discover-dependencies env-keys-set goal-map)
+        used-from-env (filter-used-goals graph env-keys-set)
+        starters (->> graph
+                      :walk-goal-list
+                      (filter #(when-let [arglists (-> %
+                                                       :goal-meta
+                                                       :arglists)]
+                                 (and (= 1 (count arglists))
+                                      (or
+                                        (-> arglists first empty?)
+                                        (and (= ::async-goal-callback
+                                                (-> %
+                                                    :goal-meta
+                                                    ::goal-type))
+                                             (-> arglists first count (= 1))))))))]
+    (when-let [undefineds (->> graph
+                               :walk-goal-list
+                               (remove (->> used-from-env
+                                            vals
+                                            set))
+                               (remove (comp :arglists :goal-meta))
+                               (map (juxt :goal-local
+                                          :goal-meta))
+                               seq)]
+      (throw (ex-info "Undefined goals"
+                      {:undefineds undefineds})))
+    {:ns ns
+     :graph graph
+     :starters starters
+     :used-from-env used-from-env
+     :goal-map goal-map
+     :results (->> (:walk-goal-list graph)
+                   (into (vals used-from-env))
+                   (map (juxt identity initial-async-state))
+                   (into {}))}))
 
 (def starter-result {:dep-values []})
 
 (defn run-make<>
-  [goal-param ns-sym ctx-id env-bindings]
+  [goal-param ns-sym env-bindings]
   (binding [*maker-ns* (find-ns ns-sym)]                    ;TODO eliminate binding
     (let [result (a/chan 1)
-          ctx-agent (agent (assoc (ensure-context-for ns-sym
-                                                      ctx-id
+          ctx-agent (agent (assoc (create-context-for ns-sym
                                                       goal-param
                                                       (->> env-bindings
                                                            (map first)
@@ -538,11 +529,9 @@
    (let [goal-map (goal-param-goal-map *ns* goal-param)
          graph (discover-dependencies (keys &env) goal-map)
          env (or &env {})
-         used-from-env (filter-used-goals graph env)
-         ctx-id (gensym goal-param)]
+         used-from-env (filter-used-goals graph env)]
      `(run-make<> ~(list 'quote goal-param)
                   ~(list 'quote (ns-name *ns*))
-                  ~(list 'quote ctx-id)
                   ~(->> used-from-env
                         (map first)
                         (map #(vector (list 'quote %)
