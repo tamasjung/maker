@@ -358,7 +358,7 @@
      :dep-values (-> deps count (repeat nil) vec)}))
 
 (defn add-dep-value
-  [{:keys [dep-index ready-bits dep-values] :as async-state} goal-map goal-val]
+  [{:keys [dep-index ready-bits] :as async-state} goal-map goal-val]
   (let [idx (get dep-index goal-map)]
     (if-not (bit-test ready-bits idx)
       (throw (ex-info "Goal value received twice" {:goal-map goal-map}))
@@ -394,13 +394,18 @@
                                             goal-val))
                                   (:results ctx)))))))
 
-(defn put-to-result
+(defn set-result
   [ctx-agent v]
   (let [result-ch (-> @ctx-agent :result second)]
-    (if (a/put! result-ch v)
-      (send ctx-agent update-in [:result 0] not)
-      (throw (ex-info "Result channel is closed"
-                      {:ctx @ctx-agent})))))
+    (when (a/put! result-ch v)
+      (do (send ctx-agent assoc-in [:result 0] true)
+          true))))
+
+(defn put-to-result
+  [ctx-agent v]
+  (when-not (set-result ctx-agent v)
+    (throw (ex-info "Result channel is closed"
+                    {:ctx @ctx-agent}))))
 
 (defn has-result
   [ctx]
@@ -409,8 +414,9 @@
       first))
 
 (defn receive-goal-error
-  [ctx-agent goal err]
-  (put-to-result ctx-agent err))
+  [ctx-agent err]
+  (send ctx-agent update-in [:errors] conj err)
+  (set-result ctx-agent err))
 
 (def ^:dynamic *executor* (-> (.. Runtime getRuntime availableProcessors)
                               (+ 2)
@@ -444,7 +450,7 @@
 
                       (yield-fn (apply (:goal-var goal-map) deps)))))
                 (catch Throwable th
-                  (receive-goal-error ctx-agent goal-map th))))))
+                  (receive-goal-error ctx-agent th))))))
 
 (defn filter-used-goals
   [graph goal-local-pred]
@@ -476,7 +482,13 @@
                                                                  :goal-meta
                                                                  :arglists)]
                                            (and (= 1 (count arglists))
-                                                (-> arglists first empty?)))))
+                                                (or
+                                                  (-> arglists first empty?)
+                                                  (and (= ::async-goal-callback
+                                                          (-> %
+                                                              :goal-meta
+                                                              ::goal-type))
+                                                       (-> arglists first count (= 1))))))))
                   ctx {:ns ns
                        :graph graph
                        :starters starters

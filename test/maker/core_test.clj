@@ -291,6 +291,40 @@
   (is (= 1 (take-in?? (make<> single-async) 1000))))
 
 ;-------------------------------------------------------------------------------
+;async handling of multiple errors
+
+(defgoal<- err0
+  []
+  (future
+    (Thread/sleep 1)
+    (yield (ex-info "Err0" {:i 0}))))
+
+
+(defgoal<> err1
+  []
+  (let [ch (a/promise-chan)]
+    (future
+      (Thread/sleep 1000)
+      (a/put! ch (ex-info "Err1" {:i 1})))
+    ch)
+  #_(a/to-chan [(ex-info "Err1" {:i 1})]))
+
+
+(defgoal<> err-result
+  [err0 err1]
+  (a/to-chan [err0 err1]))
+
+
+(deftest test-two-errors
+  (let [res (make<> err-result)]
+    (is (thrown? ExceptionInfo (take-in?? res 10000)))))
+
+#_
+(deftest test-mem-leak
+  (try (take-in?? (make<> err-result) 10000) (catch Throwable _))
+  (try (take-in?? (make<> err-result) 10000) (catch Throwable _))
+  (-> m/contextes deref count (= 0) is))
+;-------------------------------------------------------------------------------
 ;Example support for reloaded framework.
 
 (def stop-fns (atom (list)))

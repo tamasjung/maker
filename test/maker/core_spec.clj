@@ -32,13 +32,15 @@
 (s/def ::used-from-env (s/map-of ::goal-local ::goal-map))
 (s/def ::results (s/map-of ::goal-map any?))
 (s/def ::result (s/tuple boolean? identity))
+(s/def ::errors (s/coll-of (partial instance? Throwable)))
 (s/def ::async-ctx (s/keys :req-un [::ns
                                     ::graph
                                     ::starters
                                     ::used-from-env
                                     ::goal-map
                                     ::results
-                                    ::result]))
+                                    ::result]
+                           :opt-un [::errors]))
 
 (s/fdef m/has-result
         :args (s/cat :ctx ::async-ctx)
