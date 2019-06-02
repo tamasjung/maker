@@ -253,23 +253,23 @@
 
 (defgoal<> contents
   [urls]
-  (let [res-ch (a/chan (count urls))]
+  (let [res-ch (a/chan 1000)]
     (a/pipeline-async 10
                       res-ch
                       (fn [url result-ch]
-                        (a/go (a/>! result-ch (a/<! (make<> content)))
+                        (a/go (a/>! result-ch (a/<! (result-chan (make<> content))))
                               (a/close! result-ch)))
                       (a/to-chan urls))
     (a/into [] res-ch)))
 
-;;make<> will resolve the dependencies asynchronously, in parallel and returns
+;;make<> will resolve the dependencies asynchronously in parallel and returns
 ;;a channel.
 (deftest test-async
   (let [n 100
         m 10]
-    (is (= (repeat m n)
+    (is (= (range m)
            (->> (range m)
-                (map (fn [_] (future (-> contents make<> (take-in?? 10000)
+                (map (fn [n] (future (-> contents make<> (take-in?? 10000)
                                          count))))
                 (map deref))))
     (is (= (count (make urls))

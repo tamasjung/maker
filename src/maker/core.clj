@@ -522,7 +522,7 @@
         (execute-goal ctx-agent goal-map starter-result))
       (doseq [[local val] env-bindings]
         (receive-goal-value ctx-agent (get used-from-env local) val))
-      result)))
+      [result ctx-agent])))
 
 (defmacro make<>
   ([goal-param]
@@ -557,12 +557,14 @@
     :default
     sth))
 
+(def result-chan first)
+
 (defn take??
-  [ch]
-  (valid?? (a/<!! ch)))
+  [[ch]]
+  (valid?? (result-chan (a/<!! ch))))
 
 (defn take-in??
-  ([ch msec]
+  ([[ch] msec]
    (valid?? (a/alt!! ch ([v] v)
                      (a/timeout msec) ([] (ex-info "Timed out" {:ch (str ch)}))))))
 
