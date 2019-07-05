@@ -374,32 +374,39 @@
       nil)
     result))
 
-(defn receive-goal-value
-  [ctx-agent goal-map goal-val]
-  (send ctx-agent
-        (fn [ctx]
-          (assoc ctx :results
-                     (->> goal-map
-                          (get (-> ctx
-                                   :graph
-                                   :rev-dep-goals))
-                          (reduce (fn [results-acc dep-goal-map]
-                                    (update results-acc
-                                            dep-goal-map
-                                            (comp (partial exec-if-ready
-                                                           ctx-agent
-                                                           dep-goal-map)
-                                                  add-dep-value)
-                                            goal-map
-                                            goal-val))
-                                  (:results ctx)))))))
-
 (defn set-result
   [ctx-agent v]
   (let [result-ch (-> @ctx-agent :result second)]
     (when (a/put! result-ch v)
       (do (send ctx-agent assoc-in [:result 0] true)
           true))))
+
+(defn receive-goal-error
+  [ctx-agent err]
+  (send ctx-agent update-in [:errors] conj err)
+  (set-result ctx-agent err))
+
+(defn receive-goal-value
+  [ctx-agent goal-map goal-val]
+  (if (instance? Throwable goal-val)
+    (receive-goal-error ctx-agent goal-val)
+    (send ctx-agent
+          (fn [ctx]
+            (assoc ctx :results
+                       (->> goal-map
+                            (get (-> ctx
+                                     :graph
+                                     :rev-dep-goals))
+                            (reduce (fn [results-acc dep-goal-map]
+                                      (update results-acc
+                                              dep-goal-map
+                                              (comp (partial exec-if-ready
+                                                             ctx-agent
+                                                             dep-goal-map)
+                                                    add-dep-value)
+                                              goal-map
+                                              goal-val))
+                                    (:results ctx))))))))
 
 (defn put-to-result
   [ctx-agent v]
@@ -412,11 +419,6 @@
   (-> ctx
       :result
       first))
-
-(defn receive-goal-error
-  [ctx-agent err]
-  (send ctx-agent update-in [:errors] conj err)
-  (set-result ctx-agent err))
 
 (def ^:dynamic *executor* (-> (.. Runtime getRuntime availableProcessors)
                               (+ 2)

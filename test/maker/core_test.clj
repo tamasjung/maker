@@ -61,7 +61,7 @@
   ;; for external namespaces maker munges the binding names,
   ;; check it with macroexpansion
   (is (= 222 (make ns2a)))
-  ;with-goals is an extended let, works well with goal from another namespace.
+  ;with-goals is an extended let, works well with goals from another namespace.
   (is (= 22 (with-goals [ns1a 11]
               (make ns2a)))))
 
@@ -296,7 +296,7 @@
 (defgoal<- err0
   []
   (future
-    (Thread/sleep 1)
+    (Thread/sleep 100)
     (yield (ex-info "Err0" {:i 0}))))
 
 
@@ -304,10 +304,9 @@
   []
   (let [ch (a/promise-chan)]
     (future
-      (Thread/sleep 1000)
+      (Thread/sleep 200)                                    ;make this the second error
       (a/put! ch (ex-info "Err1" {:i 1})))
-    ch)
-  #_(a/to-chan [(ex-info "Err1" {:i 1})]))
+    ch))
 
 
 (defgoal<> err-result
@@ -316,8 +315,12 @@
 
 
 (deftest test-two-errors
-  (let [res (make<> err-result)]
-    (is (thrown? ExceptionInfo (take-in?? res 10000)))))
+  (let [[_ ctx-agent :as res] (make<> err-result)]
+    (is (thrown? ExceptionInfo (take-in?? res 10000)))
+    (Thread/sleep 200)
+    (is (= #{"Err0" "Err1"}
+           (->> ctx-agent deref :errors (map ex-message) set)))
+    (is (= "Err1" (->> ctx-agent deref :result second a/<!! ex-message)))))
 
 ;-------------------------------------------------------------------------------
 ;Example support for reloaded framework.
