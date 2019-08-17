@@ -5,7 +5,9 @@
             [clojure.pprint :refer [pprint]]
             [clojure.walk :as walk]
             [clojure.core.async :as a])
-  (:import (java.util.concurrent Executors)))
+  (:import (java.util.concurrent Executors)
+           (java.util WeakHashMap
+                      Collections)))
 
 (defn inj-munge
   "Injective munge"
@@ -508,6 +510,8 @@
 
 (def starter-result {:dep-values []})
 
+(def ctxs (-> (WeakHashMap.) (Collections/newSetFromMap)))
+
 (defn run-make<>
   [goal-param ns-sym env-bindings]
   (binding [*maker-ns* (find-ns ns-sym)]                    ;TODO eliminate binding
@@ -520,6 +524,7 @@
                              :result [false result])
                            :error-handler put-to-result)
           used-from-env (:used-from-env @ctx-agent)]
+      (.add ctxs ctx-agent)
       (doseq [goal-map (:starters @ctx-agent)]
         (execute-goal ctx-agent goal-map starter-result))
       (doseq [[local val] env-bindings]
