@@ -409,14 +409,14 @@
 
 (defgoal<> e3
   [e2]
-  "ok")
+  (a/promise-chan "it would be not ok to see this"))
 
 (deftest error-handling
   (is (thrown-with-msg? Throwable #"oops"
                         (make e2)))
 
-  (is (thrown? Throwable
-               (take?? (make<> e3)))))
+  (is (thrown-with-msg? Throwable #"Value is Throwable"
+                        (take?? (make<> e3)))))
 
 ;-------------------------------------------------------------------------------
 

@@ -568,7 +568,7 @@
 
 (defn take??
   [[ch]]
-  (valid?? (result-chan (a/<!! ch))))
+  (valid?? (a/<!! ch)))
 
 (defn take-in??
   ([[ch] msec]
