@@ -21,7 +21,6 @@
 ;; simple is called a 'goal'
 ;; simple* is the 'maker function
 ;; "simple" is the value of the goal
-
 (deftest test-simple
   (is (= "simple"
          ;let's make the goal
@@ -37,9 +36,9 @@
 
 ;; the defgoal macro puts '*' at the end of the goal name
 (defgoal another
-  "Just another goal but now using the defgoal - the same effect."
-  [other]
-  (str other "-another"))
+   "Just another goal but now using the defgoal - the same effect."
+   [other]
+   (str other "-another"))
 
 
 (deftest base-transitive-dep-test
@@ -116,12 +115,41 @@
 ;;necessary dependency goals. Check with macroexpansion: 'factor' appears as an
 ;;implicit dependency and created in an upper level.
 ;;Compare with collected-items above.
+
 (defgoal another-collected-items
   "A goal with an implicit dependency: 'factor'"
   [? iterator-items]
   (map (fn [iterator-item]
          (* 2 (make collected-item)))
        iterator-items))
+
+
+(defgoalfn collected-item-fn [iterator-item] collected-item)
+;=>
+#_(do (refer 'collected-items-ns
+             :rename {d-1 collected-item-fn-collected-items-ns-d1}
+             :only [d-1])
+      (refer 'transitive-dep-ns
+             :rename {d-2 d-2-34356}
+             :only [d-2])
+    (defn collected-item-fn
+      [d-1 d-2]
+      (fn [iterator-items]
+        (collected-item* d-1 d-2))))
+#_
+(defn yet-another-collected-items2
+  [iterator-items  collected-item-fn]
+  (map collected-item-fn iterator-items))
+#_
+(defgoal yet-another-collected-items3
+  [iterator-items ^{:m/goal-fn '[collected-item [iterator-item]]} $]
+  (map $ iterator-items))
+
+#_
+(defgoal yet-another-collected-item4
+  [iterator-items ^:as-goal-fn collected-item])
+
+
 
 (deftest test-for-vector
   (reset! call-counter 0)
@@ -219,7 +247,7 @@
                             [self])
                           (make self)))
                  (catch Throwable th
-                   (-> th str))))))
+                   (str th))))))
 
 ;-------------------------------------------------------------------------------
 ;;An async example.
@@ -325,7 +353,7 @@
 ;-------------------------------------------------------------------------------
 ;Example support for reloaded framework.
 
-(def stop-fns (atom (list)))
+(def stop-fns (atom ()))
 
 (def stop-fn
   (partial swap! stop-fns conj))

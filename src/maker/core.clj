@@ -1,9 +1,6 @@
 (ns maker.core
   (:require [maker.graph :as graph]
-            [clojure.set :as set]
             [clojure.string :as string]
-            [clojure.pprint :refer [pprint]]
-            [clojure.walk :as walk]
             [clojure.core.async :as a])
   (:import (java.util.concurrent Executors)
            (java.util WeakHashMap
@@ -201,15 +198,15 @@
   [goal in-state]
   (let [dep-goals (goal-map-dep-goal-maps goal)
         dependencies-state (run-on-goals in-state dep-goals)]
-    (-> dependencies-state
-        (combine-maker-state
-          {:bindings {goal [(:goal-local goal) (goal-maker-call goal
-                                                                dep-goals)]}
-           :rev-dep-goals (->> dep-goals
-                               (map #(vector % [goal]))
-                               (into {}))
-           :walk-goal-list [goal]
-           :local-env #{(:goal-local goal)}}))))
+    (combine-maker-state
+      dependencies-state
+      {:bindings {goal [(:goal-local goal) (goal-maker-call goal
+                                                            dep-goals)]}
+       :rev-dep-goals (->> dep-goals
+                           (map #(vector % [goal]))
+                           (into {}))
+       :walk-goal-list [goal]
+       :local-env #{(:goal-local goal)}})))
 
 (def ^:dynamic *non-local-deps* nil)
 
@@ -219,8 +216,7 @@
                         reverse
                         (map bindings)
                         (reduce into []))
-        only-decl (->> walk-goal-list
-                       (filter (comp not :arglists :goal-meta)))]
+        only-decl (filter (comp not :arglists :goal-meta) walk-goal-list)]
     (when (and (not *non-local-deps*)
                (seq only-decl))
       (throw (ex-info "Undefined goals" {:goals (mapv :goal-local only-decl)
@@ -274,8 +270,7 @@
                                              keys
                                              set) goal)]
     (collect-non-local-deps! env *ns* end-state goal)
-    (-> end-state
-        (make-internal goal))))
+    (make-internal end-state goal)))
 
 (defmacro make
   [goal]
@@ -288,41 +283,88 @@
                  symbol)
              (meta name)))
 
-(defn params-fn
+(defn- structured-args
+  [definitions args-in]
+  (loop [rest-defintions definitions
+         structured-args {}
+         args args-in]
+    (if-not (seq rest-defintions)
+      (assoc structured-args :body (seq args))
+      (let [[next-arg & next-args] args]
+        (if-not next-arg
+          (assoc structured-args :body nil)
+          (let [[_skipped-defs [definition & remaning-definitions]]
+                (split-with #((complement (second %)) next-arg) rest-defintions)]
+            (if-not definition
+              (assoc structured-args :body (seq args))
+              (recur remaning-definitions
+                     (assoc structured-args (first definition) next-arg)
+                     next-args))))))))
+
+(defn- rebuild-args
+  [doc params body]
+  (-> (remove nil? [doc params])
+      (concat body)))
+#_
+(prn (:body (structured-args [[:doc string?]
+                              [:params vector?]]
+                             '(
+                                "Just another goal but now using the defgoal - the same effect."
+                                [other]
+                                (str other "-another")))))
+
+(defn doc-and-params
   [f [first-param second-param :as fdecl]]
   (if (string? first-param)
     (apply list first-param (f second-param) (nnext fdecl))
     (apply list (f first-param) (rest fdecl))))
 
-(defn first-param
-  [fdecl]
-  (if (-> fdecl first string?)
-    (-> fdecl second first)
-    (ffirst fdecl)))
-
 (defmacro defgoal
   [name & fdecl]
-  (if (-> fdecl first-param (= '?))
-    (let [additional-params
-          (binding [*non-local-deps* []]
-            ;;this is really a dirty trick but what can we do?
-            (eval (apply list 'defn name fdecl))
-            (->> *non-local-deps*
-                 (map :goal-local)
-                 vec))]
+  (let [{:keys [doc params body]} (structured-args [[:doc string?]
+                                                    [:params vector?]]
+                                                   fdecl)]
+    (if (-> params first (= '?))
+      (let [additional-params
+            (binding [*non-local-deps* []]
+              ;;this is really a dirty trick but what can we do?
+              (eval (apply list 'defn name (rebuild-args doc (vec (rest params)) body)))
+              (->> *non-local-deps*
+                   (map :goal-local)
+                   vec))]
+        (apply list
+               'defn
+               (with-goal-meta name)
+               (rebuild-args doc
+                             (->> params
+                                  rest
+                                  (into additional-params)
+                                  distinct
+                                  vec)
+                             body)))
       (apply list
-             'defn
+             `defn
              (with-goal-meta name)
-             (params-fn (comp vec
-                              distinct
-                              #(into additional-params %)
-                              rest)
-                        fdecl)))
-    (apply list
-           `defn
-           (with-goal-meta name)
-           (params-fn identity
-                      fdecl))))
+             (rebuild-args doc params body)))))
+
+(defmacro defgoalfn
+  [name & args]
+  (let [{:keys [doc params body goal-sym]} (structured-args [[:doc string?]
+                                                             [:params vector?]
+                                                             [:goal-sym symbol?]]
+                                                            args)
+        param-goal-maps (map (partial goal-param-goal-map *ns*) params)
+        base-goal-map (goal-param-goal-map *ns* goal-sym)
+        additional-param-goal-maps (->> base-goal-map
+                                        (goal-map-dep-goal-maps)
+                                        (remove (set param-goal-maps)))]
+    `(do
+       ~@(map #(list 'quote %) additional-param-goal-maps)
+       ~(apply list 'defgoal name (concat (rebuild-args doc params body)
+                                         [`(fn [~@params]
+                                             (~(-> base-goal-map :goal-meta :name)
+                                               []
+                                               ))])))))
 
 (defmacro defgoal?
   [name]
@@ -332,15 +374,15 @@
   [name & fdecl]
   (do
     (apply list 'defgoal (vary-meta name merge {::goal-type ::async-goal-callback})
-           (params-fn #(into async-callbacks %)
-                      fdecl))))
+           (doc-and-params #(into async-callbacks %)
+                           fdecl))))
 
 (defmacro defgoal<>
   [name & fdecl]
   (do
     (apply list 'defgoal (vary-meta name merge {::goal-type ::async-goal-channel})
-           (params-fn identity
-                      fdecl))))
+           (doc-and-params identity
+                           fdecl))))
 
 (declare execute-goal)
 
