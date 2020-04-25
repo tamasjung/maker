@@ -29,10 +29,10 @@ issue in the next 3 minutes.
 
 * dependency tracking by looking for functions based on the names
 of the parameters 
-* works across namespaces,
 * asynchronous goals, parallel execution,
-* implicit dependencies,
-* spec for goals
+* spec for goals,
+* works across namespaces
+
 
 ## Usage, learn
 ```clj
