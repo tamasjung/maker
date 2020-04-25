@@ -5,6 +5,7 @@
             [ns2 :refer [ns2a*]]
             [ns1 :refer [ns1a*]]
             [clojure.core.async :as a]
+            [clojure.spec.alpha :as s]
             [clojure.spec.test.alpha :as stest]
             [maker.core-spec])
   (:import (clojure.lang ExceptionInfo)))
@@ -409,6 +410,16 @@
 
   (is (thrown-with-msg? Throwable #"Value is Throwable"
                         (take?? (make<> e3)))))
+
+;-------------------------------------------------------------------------------
+
+;configuration support
+
+(s/def ::aaa int?)
+
+(def config {})
+
+;-------------------------------------------------------------------------------
 
 (deftest munge-test
   (are [s res] (-> s inj-munge (= res))
