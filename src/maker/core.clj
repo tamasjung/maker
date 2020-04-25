@@ -342,12 +342,10 @@
                                   distinct
                                   vec)
                              body)))
-      (apply list
-             `defn
-             (with-goal-meta name)
-             (rebuild-args doc params body)))))
+      `(defn ~(with-goal-meta name)
+             ~@(rebuild-args doc params body)))))
 
-(defmacro defgoalfn
+(defmacro defgoalfn                                         ;better name? dash or not dash
   [name & args]
   (let [{:keys [doc params body goal-sym]} (structured-args [[:doc string?]
                                                              [:params vector?]
@@ -355,16 +353,23 @@
                                                             args)
         param-goal-maps (map (partial goal-param-goal-map *ns*) params)
         base-goal-map (goal-param-goal-map *ns* goal-sym)
-        additional-param-goal-maps (->> base-goal-map
-                                        (goal-map-dep-goal-maps)
-                                        (remove (set param-goal-maps)))]
+        deps-goal-maps (goal-map-dep-goal-maps base-goal-map)
+        additional-param-goal-maps (remove (set param-goal-maps) deps-goal-maps)]
     `(do
-       ~@(map #(list 'quote %) additional-param-goal-maps)
-       ~(apply list 'defgoal name (concat (rebuild-args doc params body)
-                                         [`(fn [~@params]
-                                             (~(-> base-goal-map :goal-meta :name)
-                                               []
-                                               ))])))))
+       ~@(->> additional-param-goal-maps
+              (remove #(identical? *ns* (-> % :goal-meta :ns)))
+              (map #(let [the-name (-> % :goal-meta :name)]
+                      (list 'refer `(quote ~(-> % :goal-meta :ns ns-name))
+                            :only `(quote [~the-name])
+                            :rename `(quote ~{the-name (-> % :goal-local with-maker-postfix symbol)})))))
+       (defgoal ~name
+         ~@(concat
+             (rebuild-args doc (->> additional-param-goal-maps
+                                    (mapv :goal-local))
+                           body)
+             [`(fn ~params
+                 (~(-> base-goal-map :goal-meta :name)
+                   ~@(map :goal-local deps-goal-maps)))])))))
 
 (defmacro defgoal?
   [name]

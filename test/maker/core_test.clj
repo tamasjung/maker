@@ -92,7 +92,7 @@
   (range 10))
 
 (defn collected-item*
-  [factor iterator-item]
+  [factor ns2a iterator-item]
   (* iterator-item factor))
 
 ;;Look at iterator-item, it was declared above and the actual value is defined
@@ -105,11 +105,23 @@
        iterator-items))
 
 (deftest test-static-collectors
+  (reset! call-counter 0)
   (is (= (last (make collected-items))
          18))
   ;;factor* was called 10 times, usually this is not what you want...so read on.
   (is (= @call-counter 10)))
 
+
+(defgoalfn collected-item-fn [iterator-item] collected-item)
+
+(defn yet-another-collected-items2*
+  [iterator-items  collected-item-fn]
+  (map collected-item-fn iterator-items))
+
+
+(deftest iterator-with-goalfn
+  (is (= (last (make yet-another-collected-items2))
+         18)))
 ;;The new thing here is the dynamic/implicit parameter list. Maker checks the
 ;;first parameter, if it is '?' then it extends the parameter list with the
 ;;necessary dependency goals. Check with macroexpansion: 'factor' appears as an
@@ -123,23 +135,6 @@
          (* 2 (make collected-item)))
        iterator-items))
 
-
-(defgoalfn collected-item-fn [iterator-item] collected-item)
-;=>
-#_(do (refer 'collected-items-ns
-             :rename {d-1 collected-item-fn-collected-items-ns-d1}
-             :only [d-1])
-      (refer 'transitive-dep-ns
-             :rename {d-2 d-2-34356}
-             :only [d-2])
-    (defn collected-item-fn
-      [d-1 d-2]
-      (fn [iterator-items]
-        (collected-item* d-1 d-2))))
-#_
-(defn yet-another-collected-items2
-  [iterator-items  collected-item-fn]
-  (map collected-item-fn iterator-items))
 #_
 (defgoal yet-another-collected-items3
   [iterator-items ^{:m/goal-fn '[collected-item [iterator-item]]} $]
@@ -147,17 +142,17 @@
 
 #_
 (defgoal yet-another-collected-item4
-  [iterator-items ^:as-goal-fn collected-item])
+  [^{:spec 'int} iterator-items ^:as-goal-fn collected-item])
 
-
-
+;FIXME there is a bug when a depedency is in another ns
+;This would fail without the defgoalfn above
 (deftest test-for-vector
   (reset! call-counter 0)
   ;;expand the make below, the creation of factor is in the right place now.
   (is (= (last (make another-collected-items))
          36))
   ;; despite it is required inside the iteration
-  ;;'factor' is made in the 'right' place and called only once
+  ;;'factor' is made in the 'right' place and created only once
   (is (= @call-counter 1)))
 
 (deftest test-spec
