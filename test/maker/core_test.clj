@@ -388,7 +388,16 @@
                (take-in?? (make<> aaa) 1000)))
     (is false)
     (catch Throwable ei
-      (is (= 'bbb (-> ei ex-data :undefineds ffirst))))))
+      (is (= 'bbb (-> ei ex-data :undefineds ffirst)))))
+
+  (is (= '[aaaa]
+         (try
+           (eval '(do (use 'maker.core)
+                      (defgoal? aaaa)
+                      (make aaaa)
+                      nil))
+           (catch Throwable ei
+             (-> ei (.getCause) ex-data :goals))))))
 
 ;-------------------------------------------------------------------------------
 
@@ -416,8 +425,6 @@
 ;configuration support
 
 (s/def ::aaa int?)
-
-(def config {})
 
 ;-------------------------------------------------------------------------------
 
