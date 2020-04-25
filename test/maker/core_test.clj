@@ -113,28 +113,17 @@
 
 
 (defgoalfn collected-item-fn [iterator-item] collected-item)
+;What if collected-item is a <>
 
 (defn yet-another-collected-items2*
   [iterator-items  collected-item-fn]
   (map collected-item-fn iterator-items))
 
-
 (deftest iterator-with-goalfn
+  (reset! call-counter 0)
   (is (= (last (make yet-another-collected-items2))
-         18)))
-;;The new thing here is the dynamic/implicit parameter list. Maker checks the
-;;first parameter, if it is '?' then it extends the parameter list with the
-;;necessary dependency goals. Check with macroexpansion: 'factor' appears as an
-;;implicit dependency and created in an upper level.
-;;Compare with collected-items above.
-
-(defgoal another-collected-items
-  "A goal with an implicit dependency: 'factor'"
-  [? iterator-items]
-  (map (fn [iterator-item]
-         (* 2 (make collected-item)))
-       iterator-items))
-
+         18))
+  (is (= 1 @call-counter)))
 #_
 (defgoal yet-another-collected-items3
   [iterator-items ^{:m/goal-fn '[collected-item [iterator-item]]} $]
@@ -143,17 +132,6 @@
 #_
 (defgoal yet-another-collected-item4
   [^{:spec 'int} iterator-items ^:as-goal-fn collected-item])
-
-;FIXME there is a bug when a depedency is in another ns
-;This would fail without the defgoalfn above
-(deftest test-for-vector
-  (reset! call-counter 0)
-  ;;expand the make below, the creation of factor is in the right place now.
-  (is (= (last (make another-collected-items))
-         36))
-  ;; despite it is required inside the iteration
-  ;;'factor' is made in the 'right' place and created only once
-  (is (= @call-counter 1)))
 
 (deftest test-spec
   (eval '(do (use 'maker.core)
@@ -409,16 +387,7 @@
                (take-in?? (make<> aaa) 1000)))
     (is false)
     (catch Throwable ei
-      (is (= 'bbb (-> ei ex-data :undefineds ffirst)))))
-
-  (is (= '[aaaa]
-         (try
-           (eval '(do (use 'maker.core)
-                      (defgoal? aaaa)
-                      (make aaaa)
-                      nil))
-           (catch Throwable ei
-             (-> ei (.getCause) ex-data :goals))))))
+      (is (= 'bbb (-> ei ex-data :undefineds ffirst))))))
 
 ;-------------------------------------------------------------------------------
 
@@ -441,22 +410,6 @@
   (is (thrown-with-msg? Throwable #"Value is Throwable"
                         (take?? (make<> e3)))))
 
-;-------------------------------------------------------------------------------
-
-(defgoal? g0)
-
-(defgoal g1 [g0] 1)
-
-(defgoal g2
-  [?]
-  (make g1)
-  (make g1))
-
-(deftest no-double-param
-  (is (= (-> g2* var meta :arglists first)
-         ['g0])))
-
-;-------------------------------------------------------------------------------
 (deftest munge-test
   (are [s res] (-> s inj-munge (= res))
                "aa" "aa"

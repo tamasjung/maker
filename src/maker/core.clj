@@ -104,8 +104,9 @@
                        symbol
                        (resolve-in ns))]
       (if-not goal-var
-        (throw (ex-info "Unknown goal" {:ns (ns-name ns)
-                                        :goal-param goal-param}))
+        (throw (ex-info (str "Unknown goal " goal-param)
+                        {:ns (ns-name ns)
+                         :goal-param goal-param}))
         (goal-map-from-goal-var goal-var)))))
 
 (defn goal-map-dep-goal-maps
@@ -208,8 +209,6 @@
        :walk-goal-list [goal]
        :local-env #{(:goal-local goal)}})))
 
-(def ^:dynamic *non-local-deps* nil)
-
 (defn make-internal
   [{:keys [walk-goal-list bindings] :as _state} goal]
   (let [local-defs (->> walk-goal-list
@@ -217,14 +216,6 @@
                         (map bindings)
                         (reduce into []))
         only-decl (filter (comp not :arglists :goal-meta) walk-goal-list)]
-    (when (and (not *non-local-deps*)
-               (seq only-decl))
-      (throw (ex-info "Undefined goals" {:goals (mapv :goal-local only-decl)
-                                         :local-defs (->> only-decl
-                                                          (partition-all 2)
-                                                          (map vec))
-                                         :for goal})))
-
     `(let [~@(->> local-defs
                   (drop-last 2))]
        ~(->> local-defs
@@ -245,17 +236,6 @@
                          (map (partial goal-param-goal-map ns)))]
     (rev-deps-set state local-goals)))
 
-(defn collect-non-local-deps!
-  [env ns state goal]
-  (when *non-local-deps*
-    (let [local-rev-deps-set (local-rev-deps state env ns)
-          minimal-non-local-goal-set
-          ((graph/border-fn goal-map-dep-goal-maps
-                            (complement local-rev-deps-set))
-            goal)]
-      (set! *non-local-deps*
-            (into *non-local-deps* minimal-non-local-goal-set)))))
-
 (defn discover-dependencies
   [env-keys-set goal]
   (-> env-keys-set
@@ -269,14 +249,13 @@
         end-state (discover-dependencies (-> env
                                              keys
                                              set) goal)]
-    (collect-non-local-deps! env *ns* end-state goal)
     (make-internal end-state goal)))
 
 (defmacro make
   [goal]
   `(make-with ~goal ~&env))
 
-(defn with-goal-meta
+(defn maker-fn-name-with-goal-meta
   [name]
   (with-meta (-> name
                  with-maker-postfix
@@ -324,26 +303,8 @@
   (let [{:keys [doc params body]} (structured-args [[:doc string?]
                                                     [:params vector?]]
                                                    fdecl)]
-    (if (-> params first (= '?))
-      (let [additional-params
-            (binding [*non-local-deps* []]
-              ;;this is really a dirty trick but what can we do?
-              (eval (apply list 'defn name (rebuild-args doc (vec (rest params)) body)))
-              (->> *non-local-deps*
-                   (map :goal-local)
-                   vec))]
-        (apply list
-               'defn
-               (with-goal-meta name)
-               (rebuild-args doc
-                             (->> params
-                                  rest
-                                  (into additional-params)
-                                  distinct
-                                  vec)
-                             body)))
-      `(defn ~(with-goal-meta name)
-             ~@(rebuild-args doc params body)))))
+    `(defn ~(maker-fn-name-with-goal-meta name)
+       ~@(rebuild-args doc params body))))
 
 (defmacro defgoalfn                                         ;better name? dash or not dash
   [name & args]
@@ -373,7 +334,7 @@
 
 (defmacro defgoal?
   [name]
-  (list 'declare (with-goal-meta name)))
+  (list 'declare (maker-fn-name-with-goal-meta name)))
 
 (defmacro defgoal<-
   [name & fdecl]
