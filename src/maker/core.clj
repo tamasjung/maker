@@ -11,10 +11,8 @@
   [s]
   (-> s
       (string/replace "+" "++")
-      (string/replace "!" "+!")
-      (string/replace "/" "!")
-      (string/replace "_" "+_")
-      (string/replace "." "_")))
+      (string/replace "/" "+!")
+      (string/replace "." "+_")))
 
 (def async-callbacks ['yield])
 
@@ -96,8 +94,7 @@
 
 (defn goal-param-goal-map
   [ns goal-param]
-  (when (and goal-param
-             (not= goal-param '?))
+  (when goal-param
     (let [whole-p (whole-param goal-param)
           referred-goal-name (with-maker-postfix whole-p)
           goal-var (-> referred-goal-name
@@ -122,7 +119,7 @@
              %))
          (map (partial goal-param-goal-map ns)))))
 
-(defn create-maker-state
+(defn- create-maker-state
   [env]
   {:bindings {}
    :local-env (or env #{})
@@ -130,7 +127,7 @@
    :walk-goal-list []
    :rev-dep-goals {}})
 
-(defn combine-items
+(defn- combine-items
   [m1 m2]
   (reduce-kv
     (fn [acc k v]
@@ -138,7 +135,7 @@
     m1
     m2))
 
-(defn combine-maker-state
+(defn- combine-maker-state
   [new-state old-state]
   (reduce (fn _cmsr [acc [k comb-fn default]]
             (if-let [new-val (k new-state)]
@@ -153,7 +150,7 @@
 
 (declare handle-goal)
 
-(defn run-on-goals
+(defn- run-on-goals
   [state goals]
   (if-let [goal (first goals)]
     (if (-> state :local-env (get (:goal-local goal)))
@@ -195,7 +192,7 @@
   `(~(goal-maker-symbol goal-map)
      ~@(map :goal-local goal-deps)))
 
-(defn handle-goal
+(defn- handle-goal
   [goal in-state]
   (let [dep-goals (goal-map-dep-goal-maps goal)
         dependencies-state (run-on-goals in-state dep-goals)]
@@ -209,40 +206,42 @@
        :walk-goal-list [goal]
        :local-env #{(:goal-local goal)}})))
 
-(defn make-internal
+(defn- make-internal
   [{:keys [walk-goal-list bindings] :as _state} goal]
   (let [local-defs (->> walk-goal-list
                         reverse
                         (map bindings)
                         (reduce into []))
-        only-decl (filter (comp not :arglists :goal-meta) walk-goal-list)]
-    (when (seq only-decl)
-      (throw (ex-info "Undefined goals" {:goals (mapv :goal-local only-decl)
-                                         :local-defs (->> only-decl
-                                                          (partition-all 2)
-                                                          (map vec))
-                                         :for goal})))
+        undefinedes (remove (comp :arglists :goal-meta) walk-goal-list)]
+    (when (seq undefinedes)
+      (throw (ex-info (str "Undefined goals: " (string/join ", " (map :goal-local undefinedes)))
+                      {:goals (mapv :goal-local undefinedes)
+                       :local-defs (->> undefinedes
+                                        (partition-all 2)
+                                        (map vec))
+                       :for goal})))
     `(let [~@(->> local-defs
                   (drop-last 2))]
-       ~(->> local-defs
-             (take-last 2)
-             second))))
+       ~(or (->> local-defs
+                 (take-last 2)
+                 second)
+            (-> goal :goal-local)))))
 
-(defn rev-deps-set
+(defn- rev-deps-set
   [{:keys [rev-dep-goals]} goal-list]
   (->> goal-list
        (mapcat (graph/dependents rev-dep-goals))
        (into goal-list)
        set))
 
-(defn local-rev-deps
+(defn- local-rev-deps
   [state env ns]
   (let [local-goals (->> env
                          keys
                          (map (partial goal-param-goal-map ns)))]
     (rev-deps-set state local-goals)))
 
-(defn discover-dependencies
+(defn- discover-dependencies
   [env-keys-set goal]
   (-> env-keys-set
       create-maker-state
@@ -261,7 +260,52 @@
   [goal]
   `(make-with ~goal ~&env))
 
-(defn maker-fn-name-with-goal-meta
+
+(defmacro with-config
+  "Makes the first parameter as a configuration goal at compile time to extract the keys.
+  At runtime it checks if the same keys are present."
+  [configs & body]
+  ;is it less readable if it is (more) hygenic? is it better?
+  ;TODO ^^^
+  (let [[compile-time-config-form config-form] (if (vector? configs)
+                                                 configs
+                                                 [configs configs])
+        config-keys (keys (eval compile-time-config-form))
+        context-ns-name (-> *ns* ns-name)
+        config-key-maps (->> config-keys
+                             (map #(let [ns-sym (-> % namespace symbol)]
+                                     (hash-map :config-key %
+                                               :ns-sym ns-sym
+                                               :name (-> % name with-maker-postfix symbol)
+                                               :goal-local (if (= ns-sym context-ns-name)
+                                                             ;TBD is this discrepancy fine?
+                                                             (-> % name symbol)
+                                                             (goal-param-goal-local ns-sym
+                                                                                    (-> % name symbol)))))))
+        refers (->> config-key-maps
+                    (remove #(= context-ns-name (:ns-sym %)))
+                    (map #(let [the-name (-> % :name)]
+                            (list 'refer `(quote ~(-> % :ns-sym))
+                                  :only `(quote [~the-name])
+                                  :rename `(quote ~{the-name (-> % :goal-local with-maker-postfix symbol)})))))]
+    ;TBD could we eliminate this 'hidden' code
+    (->> refers
+         (map eval)
+         doall)
+    `(let [~'config ~config-form]
+       (when-let [~'missing-keys (->> ~(vec config-keys)
+                                      (remove #(contains? ~'config %))
+                                      seq)]
+         (throw (ex-info (str "Missing config keys " (string/join ", " ~'missing-keys)) {})))
+       (comment "the next 'refer' line(s) would be too late here and called during compile time"
+                ~@refers)
+       (with-goals ~(->> config-key-maps
+                         (map #(list (:goal-local %) (list 'get 'config (:config-key %))))
+                         (reduce concat)
+                         vec)
+                   ~@body))))
+
+(defn- maker-fn-name-with-goal-meta
   [name]
   (with-meta (-> name
                  with-maker-postfix
@@ -290,15 +334,8 @@
   [doc params body]
   (-> (remove nil? [doc params])
       (concat body)))
-#_
-(prn (:body (structured-args [[:doc string?]
-                              [:params vector?]]
-                             '(
-                                "Just another goal but now using the defgoal - the same effect."
-                                [other]
-                                (str other "-another")))))
 
-(defn doc-and-params
+(defn- doc-and-params
   [f [first-param second-param :as fdecl]]
   (if (string? first-param)
     (apply list first-param (f second-param) (nnext fdecl))
@@ -312,6 +349,15 @@
     `(defn ~(maker-fn-name-with-goal-meta name)
        ~@(rebuild-args doc params body))))
 
+(defn- build-refers-for
+  [goal-maps]
+  (->> goal-maps
+       (remove #(identical? *ns* (-> % :goal-meta :ns)))
+       (map #(let [the-name (-> % :goal-meta :name)]
+               (list 'refer `(quote ~(-> % :goal-meta :ns ns-name))
+                     :only `(quote [~the-name])
+                     :rename `(quote ~{the-name (-> % :goal-local with-maker-postfix symbol)}))))))
+
 (defmacro defgoalfn                                         ;better name? dash or not dash
   [name & args]
   (let [{:keys [doc params body goal-sym]} (structured-args [[:doc string?]
@@ -323,12 +369,7 @@
         deps-goal-maps (goal-map-dep-goal-maps base-goal-map)
         additional-param-goal-maps (remove (set param-goal-maps) deps-goal-maps)]
     `(do
-       ~@(->> additional-param-goal-maps
-              (remove #(identical? *ns* (-> % :goal-meta :ns)))
-              (map #(let [the-name (-> % :goal-meta :name)]
-                      (list 'refer `(quote ~(-> % :goal-meta :ns ns-name))
-                            :only `(quote [~the-name])
-                            :rename `(quote ~{the-name (-> % :goal-local with-maker-postfix symbol)})))))
+       ~@(build-refers-for additional-param-goal-maps)
        (defgoal ~name
          ~@(concat
              (rebuild-args doc (->> additional-param-goal-maps
@@ -344,17 +385,15 @@
 
 (defmacro defgoal<-
   [name & fdecl]
-  (do
-    (apply list 'defgoal (vary-meta name merge {::goal-type ::async-goal-callback})
-           (doc-and-params #(into async-callbacks %)
-                           fdecl))))
+  (apply list 'defgoal (vary-meta name merge {::goal-type ::async-goal-callback})
+         (doc-and-params #(into async-callbacks %)
+                         fdecl)))
 
 (defmacro defgoal<>
   [name & fdecl]
-  (do
-    (apply list 'defgoal (vary-meta name merge {::goal-type ::async-goal-channel})
-           (doc-and-params identity
-                           fdecl))))
+  (apply list 'defgoal (vary-meta name merge {::goal-type ::async-goal-channel})
+         (doc-and-params identity
+                         fdecl)))
 
 (declare execute-goal)
 

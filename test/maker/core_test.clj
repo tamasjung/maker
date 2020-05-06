@@ -2,12 +2,12 @@
   (:require [clojure.test :refer :all]
             [maker.core :as m :refer :all]
             [clojure.pprint :refer [pprint]]
-            [ns2 :refer [ns2a*]]
+            [ns2 :refer [ns2a* ns3a-proxy*]]                ;the point is: ns3 shouldn't be required directly here ever
             [ns1 :refer [ns1a*]]
             [clojure.core.async :as a]
-            [clojure.spec.alpha :as s]
             [clojure.spec.test.alpha :as stest]
-            [maker.core-spec])
+            [maker.core-spec]
+            [clojure.spec.gen.alpha :as gen])
   (:import (clojure.lang ExceptionInfo)))
 
 ;-------------------------------------------------------------------------------
@@ -61,7 +61,7 @@
   ;; for external namespaces maker munges the binding names,
   ;; check it with macroexpansion
   (is (= 222 (make ns2a)))
-  ;with-goals is an extended let, works well with goals from another namespace.
+  ;with-goals is an extended let, works well with goals from another namespaces.
   (is (= 22 (with-goals [ns1a 11]
               (make ns2a)))))
 
@@ -114,25 +114,17 @@
 
 
 (defgoalfn collected-item-fn [iterator-item] collected-item)
-;What if collected-item is a <>
+;TBD What if the collected-item is a <>
 
-(defn yet-another-collected-items2*
+(defn another-collected-items2*
   [iterator-items  collected-item-fn]
   (map collected-item-fn iterator-items))
 
 (deftest iterator-with-goalfn
   (reset! call-counter 0)
-  (is (= (last (make yet-another-collected-items2))
+  (is (= (last (make another-collected-items2))
          18))
   (is (= 1 @call-counter)))
-#_
-(defgoal yet-another-collected-items3
-  [iterator-items ^{:m/goal-fn '[collected-item [iterator-item]]} $]
-  (map $ iterator-items))
-
-#_
-(defgoal yet-another-collected-item4
-  [^{:spec 'int} iterator-items ^:as-goal-fn collected-item])
 
 (deftest test-spec
   (eval '(do (use 'maker.core)
@@ -421,16 +413,65 @@
                         (take?? (make<> e3)))))
 
 ;-------------------------------------------------------------------------------
-
 ;configuration support
 
-(s/def ::aaa int?)
+(defgoal? config-a)
+(defgoal configured
+  [config-a]
+  (str config-a "ured!!!"))
+
+(defgoal? profile)
+(defgoal my-config
+  [profile]
+  {:maker.core-test/config-a (str (name profile) " is config")})
+
+(deftest test-config
+  (let [profile :staging]
+    (with-config [(let [profile :test] (make my-config))
+                  (make my-config)]
+                 (is (= (make configured)
+                        "staging is configured!!!")))))
+
+(def direct-config {:maker.core-test/config-a "config"})
+
+(deftest test-direct-config
+  ;if the compile time and runtime configs are different
+  (with-config [direct-config direct-config]
+               (is (= (make configured)
+                      "configured!!!")))
+  ;if the two config is the same
+  (with-config direct-config
+               (is (= (make configured)
+                      "configured!!!"))))
+
+(defgoal shouldnt-be-called
+  []
+  (throw (ex-info "Never" {})))
+
+(defgoal misconfigured
+  [shouldnt-be-called config-a]
+  (throw (ex-info "Never" {})))
+
+
+(deftest check-fails-fast-for-wrong-config
+  ;here the runtime config doesn't contain the 'promised' key
+  ;the other goal constructors are not called although the order of parameters
+  ;would implies that and it fails fast as it should
+  (is (thrown-with-msg? Throwable #"Missing config keys"
+                        (with-config [{:maker.core-test/config-a "sth"}
+                                      {}]
+                                     (make misconfigured)))))
+
+(deftest with-non-required-ns
+  (is (= (with-config {:ns3/ns3a 11}
+                      (make ns3a-proxy))
+         11)))
 
 ;-------------------------------------------------------------------------------
 
 (deftest munge-test
   (are [s res] (-> s inj-munge (= res))
                "aa" "aa"
-               "a.b/c" "a_b!c"
-               "ab/c" "ab!c"))
+               "a.b/c" "a+_b+!c"
+               "ab/c" "ab+!c"))
 
