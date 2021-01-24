@@ -1,4 +1,4 @@
-(defproject maker "2.1.1-SNAPSHOT"
+(defproject maker "2.2.0"
   :description "Clojure library to explore inversion of control technique - in several senses."
   :url "https://github.com/tamasjung/maker"
   :license {:name "MIT License"
