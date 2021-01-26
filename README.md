@@ -36,11 +36,16 @@ of the parameters
 
 ## Usage, learn
 ```clj
-[maker "2.1.0"]
+[maker "2.2.0"]
 ```
 To learn [check out](test/maker/core_test.clj) and play with the didactic tests.
 
 See how to add spec to your goals: [spec_test.clj](test/maker/spec_test.clj)
+
+## Alternative(s)
+
+* From the amazing plumatic group: [plumbing](https://github.com/plumatic/plumbing)   
+
 ## License
 
 Copyright © 2015-2017 Tamás Jung
