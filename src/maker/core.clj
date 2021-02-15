@@ -312,7 +312,7 @@
                  symbol)
              (meta name)))
 
-(defn- structured-args
+(defn- args-map
   [definitions args-in]
   (loop [rest-defintions definitions
          structured-args {}
@@ -343,9 +343,9 @@
 
 (defmacro defgoal
   [name & fdecl]
-  (let [{:keys [doc params body]} (structured-args [[:doc string?]
-                                                    [:params vector?]]
-                                                   fdecl)]
+  (let [{:keys [doc params body]} (args-map [[:doc string?]
+                                             [:params vector?]]
+                                            fdecl)]
     `(defn ~(maker-fn-name-with-goal-meta name)
        ~@(rebuild-args doc params body))))
 
@@ -360,11 +360,14 @@
 
 (defmacro defgoalfn                                         ;better name? dash or not dash
   [name & args]
-  (let [{:keys [doc params body goal-sym]} (structured-args [[:doc string?]
-                                                             [:params vector?]
-                                                             [:goal-sym symbol?]]
-                                                            args)
+  (let [{:keys [doc params body goal-sym]} (args-map [[:doc string?]
+                                                      [:params vector?]
+                                                      [:goal-sym symbol?]]
+                                                     args)
         param-goal-maps (map (partial goal-param-goal-map *ns*) params)
+        ;param-map entry: [param-goal-map param]
+        param-map (->> (map vector param-goal-maps params)
+                       (into {}))
         base-goal-map (goal-param-goal-map *ns* goal-sym)
         deps-goal-maps (goal-map-dep-goal-maps base-goal-map)
         additional-param-goal-maps (remove (set param-goal-maps) deps-goal-maps)]
@@ -376,8 +379,9 @@
                                     (mapv :goal-local))
                            body)
              [`(fn ~params
-                 (~(-> base-goal-map :goal-meta :name)
-                   ~@(map :goal-local deps-goal-maps)))])))))
+                 (~(-> goal-sym with-maker-postfix symbol)
+                   ~@(map #(or (param-map %)
+                               (:goal-local %)) deps-goal-maps)))])))))
 
 (defmacro defgoal?
   [name]

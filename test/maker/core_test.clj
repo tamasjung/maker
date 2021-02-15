@@ -2,7 +2,7 @@
   (:require [clojure.test :refer :all]
             [maker.core :as m :refer :all]
             [clojure.pprint :refer [pprint]]
-            [ns2 :refer [ns2a* ns3a-proxy*]]                ;the point is: ns3 shouldn't be required directly here ever
+            [ns2 :refer [ns2a* ns3a-proxy* ns2i* ns2b*]]                ;the point is: ns3 shouldn't be required directly here ever
             [ns1 :refer [ns1a*]]
             [clojure.core.async :as a]
             [clojure.spec.test.alpha :as stest]
@@ -125,6 +125,11 @@
   (is (= (last (make another-collected-items2))
          18))
   (is (= 1 @call-counter)))
+
+(defgoalfn g-fn [ns2i] ns2b)
+
+(deftest cross-ns-goalfn
+  (is (= "221" ((make g-fn) 1))))
 
 (deftest test-spec
   (eval '(do (use 'maker.core)
