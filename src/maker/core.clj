@@ -1,6 +1,5 @@
 (ns maker.core
-  (:require [maker.graph :as graph]
-            [clojure.string :as string]
+  (:require [clojure.string :as string]
             [clojure.core.async :as a])
   (:import (java.util.concurrent Executors)
            (java.util WeakHashMap
@@ -226,20 +225,6 @@
                  (take-last 2)
                  second)
             (-> goal :goal-local)))))
-
-(defn- rev-deps-set
-  [{:keys [rev-dep-goals]} goal-list]
-  (->> goal-list
-       (mapcat (graph/dependents rev-dep-goals))
-       (into goal-list)
-       set))
-
-(defn- local-rev-deps
-  [state env ns]
-  (let [local-goals (->> env
-                         keys
-                         (map (partial goal-param-goal-map ns)))]
-    (rev-deps-set state local-goals)))
 
 (defn- discover-dependencies
   [env-keys-set goal]
