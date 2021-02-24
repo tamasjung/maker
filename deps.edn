@@ -1,0 +1,13 @@
+{:deps {org.clojure/clojure {:mvn/version "1.10.2"}
+        org.clojure/core.async {:mvn/version "1.3.610"}}
+ :paths ["src"]
+
+ :aliases {:test
+           {:extra-paths ["test"]
+            :extra-deps {com.cognitect/test-runner {:git/url "https://github.com/cognitect-labs/test-runner.git"
+                                                    :sha "b6b3193fcc42659d7e46ecd1884a228993441182"}}
+            :main-opts ["-m" "cognitect.test-runner"]}
+
+           :release
+           {:extra-deps {applied-science/deps-library {:mvn/version "0.4.0"}}
+            :main-opts ["-m" "applied-science.deps-library"]}}}
