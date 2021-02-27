@@ -211,11 +211,11 @@
                         reverse
                         (map bindings)
                         (reduce into []))
-        undefinedes (remove (comp :arglists :goal-meta) walk-goal-list)]
-    (when (seq undefinedes)
-      (throw (ex-info (str "Undefined goals: " (string/join ", " (map :goal-local undefinedes)))
-                      {:goals (mapv :goal-local undefinedes)
-                       :local-defs (->> undefinedes
+        undefineds (remove (comp :arglists :goal-meta) walk-goal-list)]
+    (when (seq undefineds)
+      (throw (ex-info (str "Undefined goals: " (string/join ", " (map :goal-local undefineds)))
+                      {:goals (mapv :goal-local undefineds)
+                       :local-defs (->> undefineds
                                         (partition-all 2)
                                         (map vec))
                        :for goal})))
