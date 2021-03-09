@@ -75,9 +75,7 @@
   [ns name]
   (let [context-ns (or *maker-ns* *ns*)]
     (if (= context-ns ns)
-      (if (symbol? name)
-        name
-        (symbol name))
+      (symbol name)
       (-> [ns name]
           (->> (string/join "/"))
           inj-munge
@@ -232,10 +230,10 @@
       create-maker-state
       (run-on-goals [goal])))
 
-(defmacro make-with
+(defn make-with
   "Make a goal out of the environment"
-  [goal-sym env]
-  (let [goal (goal-param-goal-map *ns* goal-sym)
+  [ns goal-sym env]
+  (let [goal (goal-param-goal-map ns goal-sym)
         end-state (discover-dependencies (-> env
                                              keys
                                              set) goal)]
@@ -243,7 +241,7 @@
 
 (defmacro make
   [goal]
-  `(make-with ~goal ~&env))
+  (make-with *ns* goal &env))
 
 
 (defmacro with-config

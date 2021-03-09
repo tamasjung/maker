@@ -258,7 +258,7 @@
                       (fn [url result-ch]
                         (a/go (a/>! result-ch (a/<! (result-chan (make<> content))))
                               (a/close! result-ch)))
-                      (a/to-chan urls))
+                      (a/to-chan!! urls))
     (a/into [] res-ch)))
 
 ;;make<> will resolve the dependencies asynchronously in parallel and returns
