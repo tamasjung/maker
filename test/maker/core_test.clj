@@ -2,7 +2,7 @@
   (:require [clojure.test :refer :all]
             [maker.core :as m :refer :all]
             [clojure.pprint :refer [pprint]]
-            [ns2 :refer [ns2a* ns3a-proxy* ns2i* ns2b*]]                ;the point is: ns3 shouldn't be required directly here ever
+            [ns2 :refer [ns2a* ns3a-proxy* ns2i* ns2b*]]    ;the point is: ns3 shouldn't be required directly here ever
             [ns1 :refer [ns1a*]]
             [clojure.core.async :as a]
             [clojure.spec.test.alpha :as stest]
@@ -11,7 +11,7 @@
   (:import (clojure.lang ExceptionInfo)))
 
 ;-------------------------------------------------------------------------------
-
+;FIXME
 (stest/instrument `make-internal)
 (stest/instrument `has-result)
 
@@ -37,9 +37,9 @@
 
 ;; the defgoal macro puts '*' at the end of the goal name
 (defgoal another
-   "Just another goal but now using the defgoal - the same effect."
-   [other]
-   (str other "-another"))
+  "Just another goal but now using the defgoal - the same effect."
+  [other]
+  (str other "-another"))
 
 
 (deftest base-transitive-dep-test
@@ -62,11 +62,10 @@
   ;; check it with macroexpansion
   (is (= 222 (make ns2a)))
   ;with-goals is an extended let, works well with goals from another namespaces.
-  (is (= 22 (with-goals [ns1a 11]
+  (is (= 22 (let [ns1a 11]
               (make ns2a)))))
 
 ;-------------------------------------------------------------------------------
-
 (declare dd*)
 
 (defn goal-with-dyn-dep* [dd] (+ 10 dd))
@@ -117,7 +116,7 @@
 ;TBD What if the collected-item is a <>
 
 (defn another-collected-items2*
-  [iterator-items  collected-item-fn]
+  [iterator-items collected-item-fn]
   (map collected-item-fn iterator-items))
 
 (deftest iterator-with-goalfn
@@ -136,6 +135,23 @@
              (defgoal sb [])
              (defgoal sa [sb] 1)
              (make sa))))
+
+;-------------------------------------------------------------------------------
+;works with multimethods
+
+(defn multi-dep*
+  []
+  "123")
+
+(defmulti multi* {:arglists '([multi-dep])} count)
+
+(defmethod multi* 3
+  [_]
+  "yes")
+
+(deftest test-multi
+  (is (= (make multi)
+         "yes")))
 
 ;-------------------------------------------------------------------------------
 
@@ -168,7 +184,7 @@
 
 ; b/c choice has the goal type m/case meta, the expansion of creating it will be
 ; (case ..) and the return value of 'choice' is used as the dispatcher and the
-; matching cohice (in our case choice1) will be 'made'.
+; matching choice (in our case choice1) will be 'made'.
 ; Check the expansion of make below.
 (deftest choice-test
   (is (= (let [choice-env :choice1]
@@ -209,7 +225,7 @@
 ;; circular dependency is an error at compile time
 
 (deftest circular-dep
-  (is (re-find #"Circular dependency"
+  (is (re-find #"Circular"
                (try
 
                  (eval '(do
@@ -221,6 +237,7 @@
                    (str th))))))
 
 ;-------------------------------------------------------------------------------
+
 ;;An async example.
 (defgoal? n)
 
@@ -256,7 +273,7 @@
     (a/pipeline-async 10
                       res-ch
                       (fn [url result-ch]
-                        (a/go (a/>! result-ch (a/<! (result-chan (make<> content))))
+                        (a/go (a/>! result-ch (a/<! (make<> content)))
                               (a/close! result-ch)))
                       (a/to-chan!! urls))
     (a/into [] res-ch)))
@@ -310,16 +327,15 @@
 
 (defgoal<> err-result
   [err0 err1]
-  (a/to-chan [err0 err1]))
+  (a/to-chan! [err0 err1]))
 
 
 (deftest test-two-errors
-  (let [[_ ctx-agent :as res] (make<> err-result)]
+  (let [res (make<> err-result)]
     (is (thrown? ExceptionInfo (take-in?? res 10000)))
     (Thread/sleep 200)
-    (is (= #{"Err0" "Err1"}
-           (->> ctx-agent deref :errors (map ex-message) set)))
-    (is (= "Err1" (->> ctx-agent deref :result second a/<!! ex-message)))))
+    (is (#{"Err0" "Err1"}
+         (-> res a/<!! ex-message (doto prn))))))
 
 ;-------------------------------------------------------------------------------
 ;Example support for reloaded framework.
@@ -362,7 +378,7 @@
 ;-------------------------------------------------------------------------------
 
 (deftest missing-def
-  (is (re-find #"Unknown goal"
+  (is (re-find #"Undefined dependency"
                (try
                  (eval '(do (use 'maker.core)
                             (defgoal a [b])
@@ -376,7 +392,7 @@
                (clojure.core.async/<!! (make<> aa))))
     (is false)
     (catch Throwable ei
-      (is (= 'bb (-> ei (.getCause) ex-data :goal-param)))))
+      (is (= 'bb (-> ei (.getCause) ex-data :of :arglists ffirst)))))
 
   (try
     (eval '(do (use 'maker.core)
@@ -385,7 +401,7 @@
                (take-in?? (make<> aaa) 1000)))
     (is false)
     (catch Throwable ei
-      (is (= 'bbb (-> ei ex-data :undefineds ffirst)))))
+      (is (= 'bbb (-> ei (.getCause) ex-data :goals first)))))
 
   (is (= '[aaaa]
          (try
@@ -415,7 +431,7 @@
                         (make e2)))
 
   (is (thrown-with-msg? Throwable #"Value is Throwable"
-                        (take?? (make<> e3)))))
+                        (take-in?? (make<> e3) 1000))))
 
 ;-------------------------------------------------------------------------------
 ;configuration support
