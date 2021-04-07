@@ -13,11 +13,11 @@
 
 (defn with-maker-postfix
   [s]
-  (str s \*))
+  (str s \'))
 
 (defn without-maker-postfix
   [s]
-  (when (re-find #"\*$" s)
+  (when (re-find #"\'$" s)
     (subs s 0 (-> s count dec))))
 
 (defn whole-param
@@ -48,7 +48,7 @@
            (string/join "/")
            symbol))))
 
-(defn goal-symbol
+(defn goal-map-goal-ns-symbol
   "Calculates the goal's namespace qualified symbol"
   [{:keys [goal-local] :as goal-map}]
   (let [{:keys [ns]} (:goal-meta goal-map)]
@@ -66,7 +66,7 @@
         inj-munge
         symbol)))
 
-(defn goal-map-from-goal-var
+(defn goal-var-goal-map
   [context-ns goal-var]
   {:goal-var goal-var
    :goal-local (goal-param-goal-local
@@ -75,19 +75,24 @@
                  (-> goal-var meta :name str without-maker-postfix))
    :goal-meta (meta goal-var)})
 
-(defn goal-param-goal-map
-  [context-ns ns goal-param]
-  (when goal-param
-    (let [whole-p (whole-param goal-param)
-          referred-goal-name (with-maker-postfix whole-p)
+(defn goal-sym-goal-map
+  [context-ns ns goal-sym]
+  (when goal-sym
+    (let [referred-goal-name (with-maker-postfix goal-sym)
           goal-var (->> referred-goal-name
                         symbol
                         (ns-resolve ns))]
       (if-not goal-var
-        (throw (ex-info (str "Unknown goal " goal-param)
+        (throw (ex-info (str "Unknown goal " goal-sym)
                         {:ns (ns-name ns)
-                         :goal-param goal-param}))
-        (goal-map-from-goal-var context-ns goal-var)))))
+                         :goal-sym goal-sym}))
+        (goal-var-goal-map context-ns goal-var))))
+  )
+
+(defn goal-param-goal-map
+  [context-ns ns goal-param]
+  (when goal-param
+    (goal-sym-goal-map context-ns ns (whole-param goal-param))))
 
 (defn goal-map-dep-goal-maps
   "Reads the deps from the goal's meta"
@@ -178,12 +183,12 @@
 (defn make-with
   "Make a goal out of the environment"
   [execution-strategy context-ns goal-sym env]
-  (let [goal-map (goal-param-goal-map context-ns context-ns goal-sym)
+  (let [goal-map (goal-sym-goal-map context-ns context-ns goal-sym)
         goal-vars-sorted (sorted-goal-vars context-ns goal-sym (-> env
                                                                    keys
                                                                    set))
         in-ctx? (or env {})
-        sorted-goal-maps (map (partial goal-map-from-goal-var context-ns) goal-vars-sorted)
+        sorted-goal-maps (map (partial goal-var-goal-map context-ns) goal-vars-sorted)
         local-defs (->> sorted-goal-maps
                         (mapcat (juxt :goal-local
                                       #(goal-maker-call execution-strategy
@@ -319,7 +324,7 @@
         ;param-map entry: [param-goal-map param]
         param-map (->> (map vector param-goal-maps params)
                        (into {}))
-        base-goal-map (goal-param-goal-map *ns* *ns* goal-sym)
+        base-goal-map (goal-sym-goal-map *ns* *ns* goal-sym)
         deps-goal-maps (goal-map-dep-goal-maps *ns* base-goal-map)
         additional-param-goal-maps (remove (set param-goal-maps) deps-goal-maps)]
     `(do
@@ -391,7 +396,7 @@
     `(case (~(goal-maker-symbol goal-map)
              ~@(map :goal-local goal-deps))
        ~@(mapcat (fn [[case-item case-goal-map]]
-                   (list case-item `(make ~(goal-symbol case-goal-map)))) cases))))
+                   (list case-item `(make ~(goal-map-goal-ns-symbol case-goal-map)))) cases))))
 
 ;TODO
 #_(defmethod goal-maker-call [::async ::case]
@@ -400,14 +405,9 @@
 
 (defmacro register-case
   ([dispatcher dispatch-value case-goal]
-   `(swap! cases-map-atom assoc-in [(goal-param-goal-map *ns* *ns* '~dispatcher)
+   `(swap! cases-map-atom assoc-in [(goal-sym-goal-map *ns* *ns* '~dispatcher)
                                     ~dispatch-value]
-           (goal-param-goal-map *ns* *ns* '~case-goal)))
+           ;FIXME ns ns?
+           (goal-sym-goal-map *ns* *ns* '~case-goal)))
   ([dispatcher case-goal]
    `(register-case ~dispatcher ~case-goal ~case-goal)))
-
-;FIXME
-; review the checks for undefined goals, they spread across, avoid duplication
-; timeouts for async?
-; error handling (missing try-catch in some places?)
-; * -> ' ?

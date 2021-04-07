@@ -2,40 +2,36 @@
   (:require [clojure.test :refer :all]
             [maker.core :as m :refer :all]
             [clojure.pprint :refer [pprint]]
-            [ns2 :refer [ns2a* ns3a-proxy* ns2i* ns2b*]]    ;the point is: ns3 shouldn't be required directly here ever
-            [ns1 :refer [ns1a*]]
+            [ns2 :refer [ns2a' ns3a-proxy' ns2i' ns2b']]    ;the point is: ns3 shouldn't be required directly here ever
+            [ns1 :refer [ns1a']]
             [clojure.core.async :as a]
             [clojure.spec.test.alpha :as stest]
-            [maker.core-spec]
             [clojure.spec.gen.alpha :as gen])
   (:import (clojure.lang ExceptionInfo)))
 
 ;-------------------------------------------------------------------------------
-;FIXME
-(stest/instrument `make-internal)
-(stest/instrument `has-result)
 
-(defn simple*
+(defn simple'
   []
   "simple")
 
 ;; simple is called a 'goal'
-;; simple* is the 'maker function
+;; simple' is the 'maker function
 ;; "simple" is the value of the goal
 (deftest test-simple
   (is (= "simple"
          ;let's make the goal
          (make simple)
          ;the make macro expands to
-         (let [simple (simple*)]
+         (let [simple (simple')]
            simple))))
 
-;; to define a maker function just put a '*' at the end of name.
-(defn other*
+;; to define a maker function just put a ''' at the end of name.
+(defn other'
   [simple]
   (str simple "-other"))
 
-;; the defgoal macro puts '*' at the end of the goal name
+;; the defgoal macro puts ''' at the end of the goal name
 (defgoal another
   "Just another goal but now using the defgoal - the same effect."
   [other]
@@ -45,9 +41,9 @@
 (deftest base-transitive-dep-test
   (is (= (make another)
          "simple-other-another"
-         (let [simple (simple*)
-               other (other* simple)
-               another (another* other)]
+         (let [simple (simple')
+               other (other' simple)
+               another (another' other)]
            another)))
 
   ;; shadow the original definition simply with let
@@ -66,9 +62,9 @@
               (make ns2a)))))
 
 ;-------------------------------------------------------------------------------
-(declare dd*)
+(declare dd')
 
-(defn goal-with-dyn-dep* [dd] (+ 10 dd))
+(defn goal-with-dyn-dep' [dd] (+ 10 dd))
 
 (deftest test-dynamic-goal
   (is (= (let [dd 1]
@@ -79,7 +75,7 @@
 
 (def call-counter (atom 0))
 
-(defn factor*
+(defn factor'
   []
   (swap! call-counter inc)
   2)
@@ -87,11 +83,11 @@
 ;; the next is a declaration of a goal without definition
 (defgoal? iterator-item)
 
-(defn iterator-items*
+(defn iterator-items'
   []
   (range 10))
 
-(defn collected-item*
+(defn collected-item'
   [factor ns2a iterator-item]
   (* iterator-item factor))
 
@@ -108,14 +104,14 @@
   (reset! call-counter 0)
   (is (= (last (make collected-items))
          18))
-  ;;factor* was called 10 times, usually this is not what you want...so read on.
+  ;;factor' was called 10 times, usually this is not what you want...so read on.
   (is (= @call-counter 10)))
 
 
 (defgoalfn collected-item-fn [iterator-item] collected-item)
 ;TBD What if the collected-item is a <>
 
-(defn another-collected-items2*
+(defn another-collected-items2'
   [iterator-items collected-item-fn]
   (map collected-item-fn iterator-items))
 
@@ -139,13 +135,13 @@
 ;-------------------------------------------------------------------------------
 ;works with multimethods
 
-(defn multi-dep*
+(defn multi-dep'
   []
   "123")
 
-(defmulti multi* {:arglists '([multi-dep])} count)
+(defmulti multi' {:arglists '([multi-dep])} count)
 
-(defmethod multi* 3
+(defmethod multi' 3
   [_]
   "yes")
 
@@ -155,28 +151,28 @@
 
 ;-------------------------------------------------------------------------------
 
-(def choice-env*)
+(def choice-env')
 
-(defn choice-dep-a*
+(defn choice-dep-a'
   []
   1)
 
-(defn choice-dep-b*
+(defn choice-dep-b'
   []
   2)
 
 
-(defn ^{::m/goal-type ::m/case} choice*
+(defn ^{::m/goal-type ::m/case} choice'
   [choice-env]
   choice-env)
 
-(defn choice1*
+(defn choice1'
   [choice-dep-a]
   (str choice-dep-a))
 
 (register-case choice :choice1 choice1)
 
-(defn choice2*
+(defn choice2'
   [choice-dep-b]
   (str choice-dep-b))
 
@@ -193,11 +189,11 @@
 
 ;-------------------------------------------------------------------------------
 
-(defn m* [] {:a 1 :b 2})
-(defn v* [] [11 22])
+(defn m' [] {:a 1 :b 2})
+(defn v' [] [11 22])
 
 ;; maker works together with destructuring
-(defn destr-goal*
+(defn destr-goal'
   [{:keys [a b] :as m} [c :as v]]
   [a b m c v])
 
@@ -207,7 +203,7 @@
 
 ;; destructuring wiht dynamic goals
 
-(defn d-destr-goal*
+(defn d-destr-goal'
   [{:keys [a b] :as dm} [c :as dv]]
   [a b dm c dv])
 
@@ -230,7 +226,7 @@
 
                  (eval '(do
                           (use 'maker.core)
-                          (defn self*
+                          (defn self'
                             [self])
                           (make self)))
                  (catch Throwable th

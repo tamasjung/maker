@@ -1,6 +1,5 @@
 (ns maker.spec
-  (:require [clojure.spec.test.alpha :as stest]
-            [clojure.spec.alpha :as s]
+  (:require [clojure.spec.alpha :as s]
             [maker.core :as m]))
 
 (defn goal-map-spec
@@ -15,7 +14,7 @@
 (defmacro def
   [goal-name spec]
   `(s/def ~(->> goal-name
-                (m/goal-param-goal-map *ns*)
+                (m/goal-sym-goal-map *ns* *ns*)
                 m/goal-maker-symbol)
      ~spec))
 
@@ -23,13 +22,13 @@
   "Infer args' spec from dependencies' :ret"
   [goal-name ret-spec & opts]
   `(s/fdef ~(->> goal-name
-                 (m/goal-param-goal-map *ns*)
+                 (m/goal-sym-goal-map *ns* *ns*)
                  m/goal-maker-symbol)
            ~@(->> opts
                   (merge {:ret ret-spec
                           :args `(s/cat ~@(->> goal-name
-                                               (m/goal-param-goal-map *ns*)
-                                               m/goal-map-dep-goal-maps
+                                               (m/goal-sym-goal-map *ns* *ns*)
+                                               (m/goal-map-dep-goal-maps *ns*)
                                                (mapcat (juxt (comp keyword
                                                                    :goal-local)
                                                              goal-map-spec))))})

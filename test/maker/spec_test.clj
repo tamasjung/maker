@@ -15,10 +15,9 @@
 
 (ms/fdef b string?)
 
+;;for no spec it will be `any?` by default instead of a NPE
 (defgoal nospec [])
 
-;;unfortunately  there is no spec for nospec yet :(
-;;it will be `any?` by default instead of a NPE if you don't mind :)
 
 (defgoal c
   [a b nospec]
@@ -26,8 +25,8 @@
 
 (ms/fdef c string?)
 
-(stest/instrument `c*)
-(stest/instrument `b*)
+(stest/instrument `c')
+(stest/instrument `b')
 
 (deftest doal-specs
   (is (= "1b"
