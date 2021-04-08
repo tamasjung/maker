@@ -228,8 +228,8 @@
   ;TODO ^^^
   (let [[compile-time-config-form config-form] (if (vector? configs)
                                                  configs
-                                                 [configs configs])
-        config-keys (keys (eval compile-time-config-form))
+                                                 [`(keys ~configs) configs])
+        config-keys (eval compile-time-config-form)
         context-ns-name (-> *ns* ns-name)
         config-key-maps (->> config-keys
                              (map #(let [ns-sym (-> % namespace symbol)]

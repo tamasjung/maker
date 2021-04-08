@@ -444,7 +444,8 @@
 
 (deftest test-config
   (let [profile :staging]
-    (with-config [(let [profile :test] (make my-config))
+    (with-config [(let [profile :test]
+                    (keys (make my-config)))
                   (make my-config)]
                  (is (= (make configured)
                         "staging is configured!!!")))))
@@ -453,7 +454,7 @@
 
 (deftest test-direct-config
   ;if the compile time and runtime configs are different
-  (with-config [direct-config direct-config]
+  (with-config [(keys direct-config) direct-config]
                (is (= (make configured)
                       "configured!!!")))
   ;if the two config is the same
@@ -475,7 +476,7 @@
   ;the other goal constructors are not called although the order of parameters
   ;would implies that and it fails fast as it should
   (is (thrown-with-msg? Throwable #"Missing config keys"
-                        (with-config [{:maker.core-test/config-a "sth"}
+                        (with-config [[:maker.core-test/config-a]
                                       {}]
                                      (make misconfigured)))))
 
