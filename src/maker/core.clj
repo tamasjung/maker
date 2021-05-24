@@ -1,6 +1,5 @@
 (ns maker.core
   (:require [clojure.string :as string]
-            [clojure.core.async :as a]
             [maker.graph :as graph]))
 
 (defn inj-munge
@@ -42,7 +41,7 @@
 (defn goal-maker-symbol
   "Calculates the goal maker fn's symbol"
   [goal-map]
-  (let [{:keys [ns name]} (:goal-meta goal-map)]
+  (let [{:keys [ns name]} (-> goal-map :goal-var meta)]
     (when name
       (->> [ns name]
            (string/join "/")
@@ -50,8 +49,8 @@
 
 (defn goal-map-goal-ns-symbol
   "Calculates the goal's namespace qualified symbol"
-  [{:keys [goal-local] :as goal-map}]
-  (let [{:keys [ns]} (:goal-meta goal-map)]
+  [{:keys [goal-local goal-var] :as _goal-map}]
+  (let [{:keys [ns]} (meta goal-var)]
     (when goal-local
       (->> [ns goal-local]
            (string/join "/")
@@ -69,11 +68,12 @@
 (defn goal-var-goal-map
   [context-ns goal-var]
   {:goal-var goal-var
-   :goal-local (goal-param-goal-local
+   :context-ns context-ns
+   :goal-local (goal-param-goal-local                       ;FIXME wrong fn name?
                  context-ns
                  (-> goal-var meta :ns)
-                 (-> goal-var meta :name str without-maker-postfix))
-   :goal-meta (meta goal-var)})
+                 ;FIXME without then with
+                 (-> goal-var meta :name str without-maker-postfix))})
 
 (defn goal-sym-goal-map
   [context-ns ns goal-sym]
@@ -86,8 +86,7 @@
         (throw (ex-info (str "Unknown goal " goal-sym)
                         {:ns (ns-name ns)
                          :goal-sym goal-sym}))
-        (goal-var-goal-map context-ns goal-var))))
-  )
+        (goal-var-goal-map context-ns goal-var)))))
 
 (defn goal-param-goal-map
   [context-ns ns goal-param]
@@ -96,55 +95,32 @@
 
 (defn goal-map-dep-goal-maps
   "Reads the deps from the goal's meta"
-  [context-ns goal-map]
-  (let [g-meta (:goal-meta goal-map)
-        ns (-> g-meta :ns)]
-    (->> g-meta
+  [{:keys [context-ns goal-var]}]
+  (let [ns (-> goal-var meta :ns)]
+    (->> goal-var
+         meta
          :arglists
          first
          (map (partial goal-param-goal-map context-ns ns)))))
 
-(defmulti goal-maker-call (fn [exec-strat goal-map _]
-                            [exec-strat
-                             (-> goal-map
-                                 :goal-meta
-                                 ::goal-type)]))
+(defn goal-realisation
+  [_ctx goal-map]
+  (:goal-local goal-map))
 
-(defmethod goal-maker-call [::sequential ::async-goal-channel]
-  [_ goal-map goal-deps]
-  `(clojure.core.async/<!! (~(goal-maker-symbol goal-map)
-                             ~@(map :goal-local goal-deps))))
+;FIXME goal-deps should not be param, neither end-goal-map should be
+(defmulti goal-maker-call (fn [_ctx _end-goal-map goal-map _goal-deps]
+                            (when (-> goal-map
+                                      :goal-var
+                                      meta
+                                      ::multicase
+                                      true?)
 
-(defmethod goal-maker-call [::sequential nil]
-  [_ goal-map goal-deps]
+                              :multicase)))
+
+(defmethod goal-maker-call :default
+  [{:keys [goal-realisation-fn] :as ctx} _ goal-map goal-deps]
   `(~(goal-maker-symbol goal-map)
-     ~@(map :goal-local goal-deps)))
-
-(defmethod goal-maker-call [::async ::async-goal-channel]
-  [_ goal-map goal-deps]
-  `(let [r# (clojure.core.async/promise-chan)]
-     (clojure.core.async/go
-       (clojure.core.async/>! r#
-                              (clojure.core.async/<!
-                                (~(goal-maker-symbol goal-map)
-                                  ~@(map (fn [{:keys [in-ctx goal-local]}]
-                                           (if in-ctx
-                                             goal-local
-                                             (list 'clojure.core.async/<! goal-local)))
-                                         goal-deps)))))
-     r#))
-
-(defmethod goal-maker-call [::async nil]
-  [_ goal-map goal-deps]
-  `(let [r# (clojure.core.async/promise-chan)]
-     (clojure.core.async/thread (clojure.core.async/put! r#
-                                                         (~(goal-maker-symbol goal-map)
-                                                           ~@(map (fn [{:keys [in-ctx goal-local]}]
-                                                                    (if in-ctx
-                                                                      goal-local
-                                                                      (list 'clojure.core.async/<!! goal-local)))
-                                                                  goal-deps))))
-     r#))
+     ~@(map (partial goal-realisation-fn ctx) goal-deps)))
 
 (defn- dependencies
   [goal-var]
@@ -168,36 +144,49 @@
   (remove given-fn? (dependencies goal-var)))
 
 (defn- sorted-goal-vars
-  [ns goal-symbol env-keys]
+  [stop? {:keys [context-ns]} goal-symbol env-keys]
   (let [to-local-keys (->> env-keys
-                           (map #(vector (->> % with-maker-postfix symbol (ns-resolve ns))
+                           (map #(vector (->> % with-maker-postfix symbol (ns-resolve context-ns))
                                          %))
                            ;vars
                            (filter first)
                            (into {}))
-        goal-var (or (->> goal-symbol with-maker-postfix symbol (ns-resolve ns))
+        goal-var (or (->> goal-symbol with-maker-postfix symbol (ns-resolve context-ns))
                      (throw (ex-info (str "Undefined goal: " goal-symbol) {})))]
     (graph/topsort-component (partial dependencies-in-ctx to-local-keys)
+                             stop?
                              goal-var)))
 
-(defn make-with
+(defn render-let
+  [local-defs]
+  `(let [~@(->> local-defs
+                (drop-last 2))]
+     ~(->> local-defs
+           (take-last 2)
+           second)))
+
+(defn- local-defs-for
   "Make a goal out of the environment"
-  [execution-strategy context-ns goal-sym env]
+  [{:keys [goal-maker-call-fn context-ns] :as ctx} goal-sym env]
   (let [goal-map (goal-sym-goal-map context-ns context-ns goal-sym)
-        goal-vars-sorted (sorted-goal-vars context-ns goal-sym (-> env
-                                                                   keys
-                                                                   set))
-        in-ctx? (or env {})
+        goal-vars-sorted (sorted-goal-vars #(-> % meta ::dispatch-goal true?) ;stop early at a dispatch goal, inclusively
+                                           ctx
+                                           goal-sym
+                                           (-> env
+                                               keys
+                                               set))
+
+
         sorted-goal-maps (map (partial goal-var-goal-map context-ns) goal-vars-sorted)
         local-defs (->> sorted-goal-maps
                         (mapcat (juxt :goal-local
-                                      #(goal-maker-call execution-strategy
-                                                        %
-                                                        (->> (goal-map-dep-goal-maps context-ns %)
-                                                             (map (fn [p] (assoc p :in-ctx (-> p :goal-local in-ctx?))))))))
+                                      #(goal-maker-call-fn ctx
+                                                           goal-map
+                                                           %
+                                                           (goal-map-dep-goal-maps %))))
                         (into []))
         ;FIXME too implicit and needlessly limited
-        undefined-goals (remove (comp :arglists :goal-meta) sorted-goal-maps)]
+        undefined-goals (remove (comp :arglists meta :goal-var) sorted-goal-maps)]
     (when (seq undefined-goals)
       (throw (ex-info (str "Undefined goals: " (string/join ", " (map :goal-local undefined-goals)))
                       {:goals (mapv :goal-local undefined-goals)
@@ -205,20 +194,20 @@
                                         (partition-all 2)
                                         (map vec))
                        :for goal-map})))
-    `(let [~@(->> local-defs
-                  (drop-last 2))]
-       ~(->> local-defs
-             (take-last 2)
-             second))))
+    local-defs))
+
+(defn make-with
+  [ctx goal-sym env]
+  (-> (local-defs-for ctx goal-sym env)
+      render-let))
 
 (defmacro make
   [goal]
-  (make-with ::sequential *ns* goal &env))
-
-(defmacro make<>
-  [goal]
-  (make-with ::async *ns* goal &env))
-
+  (make-with {:goal-maker-call-fn goal-maker-call
+              :goal-realisation-fn goal-realisation
+              :context-ns *ns*}
+             goal
+             &env))
 
 (defmacro with-config
   "Makes the first parameter as a configuration goal at compile time to extract the keys.
@@ -273,7 +262,8 @@
                  symbol)
              (meta name)))
 
-(defn- args-map
+;FIXME could this be simpler?
+(defn args-map
   [definitions args-in]
   (loop [rest-defintions definitions
          structured-args {}
@@ -291,10 +281,10 @@
                      (assoc structured-args (first definition) next-arg)
                      next-args))))))))
 
-(defn- rebuild-args
-  [doc params body]
-  (-> (remove nil? [doc params])
-      (concat body)))
+(defn rebuild-args
+  [& args]
+  (concat (remove nil? (butlast args))
+          (last args)))
 
 (defmacro defgoal
   [name & fdecl]
@@ -307,9 +297,9 @@
 (defn- build-refers-for
   [goal-maps]
   (->> goal-maps
-       (remove #(identical? *ns* (-> % :goal-meta :ns)))
-       (map #(let [the-name (-> % :goal-meta :name)]
-               (list 'refer `(quote ~(-> % :goal-meta :ns ns-name))
+       (remove #(identical? *ns* (-> % :goal-var meta :ns)))
+       (map #(let [the-name (-> % :goal-var meta :name)]
+               (list 'refer `(quote ~(-> % :goal-var meta :ns ns-name))
                      :only `(quote [~the-name])
                      :rename `(quote ~{the-name (-> % :goal-local with-maker-postfix symbol)}))))))
 
@@ -325,11 +315,11 @@
         param-map (->> (map vector param-goal-maps params)
                        (into {}))
         base-goal-map (goal-sym-goal-map *ns* *ns* goal-sym)
-        deps-goal-maps (goal-map-dep-goal-maps *ns* base-goal-map)
+        deps-goal-maps (goal-map-dep-goal-maps base-goal-map)
         additional-param-goal-maps (remove (set param-goal-maps) deps-goal-maps)]
     `(do
        ~@(build-refers-for additional-param-goal-maps)
-       (defgoal ~name
+       (defgoal ~(vary-meta name assoc ::defgoalfn true)
          ~@(concat
              (rebuild-args doc (->> additional-param-goal-maps
                                     (mapv :goal-local))
@@ -343,71 +333,51 @@
   [name]
   (list 'declare (maker-fn-name-with-goal-meta name)))
 
-(defmacro defgoal<>
-  [name & fdecl]
-  (apply list 'defgoal (vary-meta name merge {::goal-type ::async-goal-channel})
-         fdecl))
-
-(defmacro defgoal<-
-  [name & fdecl]
-  (let [{:keys [doc params body]} (args-map [[:doc string?]
-                                             [:params vector?]]
-                                            fdecl)
-        callback-body `[(let [result# (clojure.core.async/promise-chan)
-                              ~'yield (fn yield-fn# [v#] (clojure.core.async/put! result# v#))]
-                          ~@body
-                          result#)]]
-    `(defgoal<> ~name
-       ~@(rebuild-args doc params callback-body))))
-
-(defn throw??
-  "Throw throwable, return param otherwise."
-  [in]
-  (if (instance? Throwable in)
-    (throw (ex-info "Value is Throwable" {} in))
-    in))
-
-(defn valid??
-  [sth]
-  (cond
-    (nil? sth)
-    (throw (ex-info "Nil is invalid." {}))
-
-    (instance? Throwable sth)
-    (throw (ex-info "Value is Throwable" {} sth))
-
-    :default
-    sth))
-
-(defn take??
-  [ch]
-  (valid?? (a/<!! ch)))
-
-(defn take-in??
-  ([ch msec]
-   (valid?? (a/alt!! ch ([v] v)
-                     (a/timeout msec) ([] (ex-info "Timed out" {:ch (str ch)}))))))
-
 (def cases-map-atom (atom {}))
 
-(defmethod goal-maker-call [::sequential ::case]
-  [_ goal-map goal-deps]
-  (let [cases (@cases-map-atom goal-map)]
-    `(case (~(goal-maker-symbol goal-map)
-             ~@(map :goal-local goal-deps))
-       ~@(mapcat (fn [[case-item case-goal-map]]
-                   (list case-item `(make ~(goal-map-goal-ns-symbol case-goal-map)))) cases))))
+(defmacro defmulticase
+  "Defines a multi case goal with its name and the dispatch goal's name."
+  {:arglists '[goal-name docstring? dispatch-goal-name]}
+  [goal-name & fdecl]
+  (let [{:keys [doc dispatch-goal-name]} (args-map [[:doc string?]
+                                                    [:dispatch-goal-name symbol?]]
+                                                   fdecl)]
 
-;TODO
-#_(defmethod goal-maker-call [::async ::case]
-    [_ goal-map goal-deps]
-    )
+    (assert dispatch-goal-name)
+    `(defn ~(vary-meta (maker-fn-name-with-goal-meta goal-name)
+                       assoc
+                       ::multicase true)
+       ;FIXME why fn?
+       ~@(rebuild-args doc [dispatch-goal-name]
+                       [(list 'throw '(ex-info "Placeholder only, this function should not be called directly." {}))]))))
+
+(defmacro make-case
+  ;it is a macro to have env but is that enough reason? env could be propagated (as context-ns is)
+  [ctx multi-goal end-goal case-goal]
+  (let [local-defs-for-case-goal (local-defs-for ctx case-goal &env)
+        multi-goal-map (goal-sym-goal-map *ns* *ns* multi-goal)
+        case-goal-map (goal-sym-goal-map *ns* *ns* case-goal)
+        local-defs (into local-defs-for-case-goal (map :goal-local [multi-goal-map case-goal-map]))]
+    `(let ~local-defs
+       ~(make-with ctx end-goal &env))))
+
+(defmethod goal-maker-call :multicase
+  [{:keys [goal-realisation-fn] :as ctx} end-goal-map goal-map goal-deps]
+  (let [cases (@cases-map-atom goal-map)
+        dispatch-goal-map (first goal-deps)]
+
+    `(case ~(goal-realisation-fn ctx dispatch-goal-map)
+
+       ~@(mapcat (fn [[case-item case-goal-map]]
+                   (list case-item `(make-case ~ctx         ;FIXME strange, this takes the advantage of that macro result is not serialised to code but remains a memory object, ctx should be a serializable thing to support gradual/partial macro expansion in IDEs.
+                                               ~@(map goal-map-goal-ns-symbol
+                                                      [goal-map end-goal-map case-goal-map]))))
+                 cases))))
 
 (defmacro register-case
   ([dispatcher dispatch-value case-goal]
    `(swap! cases-map-atom assoc-in [(goal-sym-goal-map *ns* *ns* '~dispatcher)
                                     ~dispatch-value]
-           ;FIXME ns ns?
            (goal-sym-goal-map *ns* *ns* '~case-goal)))
   ([dispatcher case-goal]
    `(register-case ~dispatcher ~case-goal ~case-goal)))

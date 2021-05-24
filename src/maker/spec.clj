@@ -28,7 +28,7 @@
                   (merge {:ret ret-spec
                           :args `(s/cat ~@(->> goal-name
                                                (m/goal-sym-goal-map *ns* *ns*)
-                                               (m/goal-map-dep-goal-maps *ns*)
+                                               (m/goal-map-dep-goal-maps)
                                                (mapcat (juxt (comp keyword
                                                                    :goal-local)
                                                              goal-map-spec))))})

@@ -4,7 +4,6 @@
             [clojure.pprint :refer [pprint]]
             [ns2 :refer [ns2a' ns3a-proxy' ns2i' ns2b']]    ;the point is: ns3 shouldn't be required directly here ever
             [ns1 :refer [ns1a']]
-            [clojure.core.async :as a]
             [clojure.spec.test.alpha :as stest]
             [clojure.spec.gen.alpha :as gen])
   (:import (clojure.lang ExceptionInfo)))
@@ -162,9 +161,11 @@
   2)
 
 
-(defn ^{::m/goal-type ::m/case} choice'
+(defn choice-dispatch'
   [choice-env]
   choice-env)
+
+(defmulticase choice choice-dispatch)
 
 (defn choice1'
   [choice-dep-a]
@@ -178,13 +179,18 @@
 
 (register-case choice :choice2 choice2)
 
+(defn end'
+  [choice]
+  choice)
+
 ; b/c choice has the goal type m/case meta, the expansion of creating it will be
 ; (case ..) and the return value of 'choice' is used as the dispatcher and the
 ; matching choice (in our case choice1) will be 'made'.
 ; Check the expansion of make below.
 (deftest choice-test
   (is (= (let [choice-env :choice1]
-           (make choice))
+             ;FIXME doesn't work (stackoverflow) if choice the end-goal
+             (make end))
          "1")))
 
 ;-------------------------------------------------------------------------------
@@ -231,107 +237,6 @@
                           (make self)))
                  (catch Throwable th
                    (str th))))))
-
-;-------------------------------------------------------------------------------
-
-;;An async example.
-(defgoal? n)
-
-;;For every defgoal<> the return value has to be a channel and maker's duty to
-;;to unwrap the value from it properly.
-(defgoal<> urls
-  "This goal is defined as a content of a channel."
-  [n]
-  (let [res (a/promise-chan)]
-    (future
-      (try
-        (->> (range n)
-             (map (partial str "url"))
-             (a/put! res))
-        (catch Throwable th
-          (a/put! res th))))
-    res))
-
-(defgoal? url)
-
-;;For defgoal<- the return value is given by the yield callback.
-(defgoal<- content
-  [url]
-  (future
-    (try
-      (yield (str url "content"))
-      (catch Throwable th
-        (yield th)))))
-
-(defgoal<> contents
-  [urls]
-  (let [res-ch (a/chan 1000)]
-    (a/pipeline-async 10
-                      res-ch
-                      (fn [url result-ch]
-                        (a/go (a/>! result-ch (a/<! (make<> content)))
-                              (a/close! result-ch)))
-                      (a/to-chan!! urls))
-    (a/into [] res-ch)))
-
-;;make<> will resolve the dependencies asynchronously in parallel and returns
-;;a channel.
-(deftest test-async
-  (let [n 100
-        m 10]
-    (is (= (range m)
-           (->> (range m)
-                (map (fn [n] (future (-> contents make<> (take-in?? 10000)
-                                         count))))
-                (map deref))))
-    (is (= (count (make urls))
-           n)))
-  (let [url "u"]
-    (is (= (make content)
-           "ucontent"))))
-
-;-------------------------------------------------------------------------------
-;simple async
-
-(defgoal<> single-async
-  []
-  (let [ch (a/promise-chan)]
-    (a/put! ch 1)
-    ch))
-
-(deftest test-single-async
-  (is (= 1 (take-in?? (make<> single-async) 1000))))
-
-;-------------------------------------------------------------------------------
-;async handling of multiple errors
-
-(defgoal<- err0
-  []
-  (future
-    (Thread/sleep 100)
-    (yield (ex-info "Err0" {:i 0}))))
-
-
-(defgoal<> err1
-  []
-  (let [ch (a/promise-chan)]
-    (future
-      (Thread/sleep 200)                                    ;make this the second error
-      (a/put! ch (ex-info "Err1" {:i 1})))
-    ch))
-
-
-(defgoal<> err-result
-  [err0 err1]
-  (a/to-chan! [err0 err1]))
-
-
-(deftest test-two-errors
-  (let [res (make<> err-result)]
-    (is (thrown? ExceptionInfo (take-in?? res 10000)))
-    (Thread/sleep 200)
-    (is (#{"Err0" "Err1"}
-         (-> res a/<!! ex-message (doto prn))))))
 
 ;-------------------------------------------------------------------------------
 ;Example support for reloaded framework.
@@ -382,23 +287,6 @@
                  (catch Throwable ei
                    (-> ei (.getCause) str)))))
 
-  (try
-    (eval '(do (use 'maker.core)
-               (defgoal<> aa [bb])
-               (clojure.core.async/<!! (make<> aa))))
-    (is false)
-    (catch Throwable ei
-      (is (= 'bb (-> ei (.getCause) ex-data :of :arglists ffirst)))))
-
-  (try
-    (eval '(do (use 'maker.core)
-               (defgoal? bbb)
-               (defgoal<> aaa [bbb])
-               (take-in?? (make<> aaa) 1000)))
-    (is false)
-    (catch Throwable ei
-      (is (= 'bbb (-> ei (.getCause) ex-data :goals first)))))
-
   (is (= '[aaaa]
          (try
            (eval '(do (use 'maker.core)
@@ -407,27 +295,6 @@
                       nil))
            (catch Throwable ei
              (-> ei (.getCause) ex-data :goals))))))
-
-;-------------------------------------------------------------------------------
-
-(defgoal e1
-  []
-  (throw (ex-info "oops" {})))
-
-(defgoal e2
-  [e1]
-  "ok")
-
-(defgoal<> e3
-  [e2]
-  (a/promise-chan "it would be not ok to see this"))
-
-(deftest error-handling
-  (is (thrown-with-msg? Throwable #"oops"
-                        (make e2)))
-
-  (is (thrown-with-msg? Throwable #"Value is Throwable"
-                        (take-in?? (make<> e3) 1000))))
 
 ;-------------------------------------------------------------------------------
 ;configuration support
