@@ -32,7 +32,7 @@
            (throw res#)
            res#)))))
 
-(defmulti goal-maker-call (fn [_ctx _end-goal-map goal-map _]
+(defmulti goal-maker-call (fn [_ctx _end-goal-map goal-map]
                             (cond
                               (or (promise-chan-flag? goal-map)
                                   (-> goal-map :goal-var meta ::m/defgoalfn true?))
@@ -41,33 +41,33 @@
                               :else :in-go)))
 
 #_(defmethod goal-maker-call [::sequential ::async-goal-channel]
-    [ctx end-goal goal-map goal-deps]
-    `(clojure.core.async/<!! ~(m/goal-maker-call ctx end-goal goal-map goal-deps)))
+    [ctx end-goal goal-map]
+    `(clojure.core.async/<!! ~(m/goal-maker-call ctx end-goal goal-map)))
 
 (defmethod goal-maker-call :direct
-  [ctx end-goal goal-map goal-deps]
-  (m/goal-maker-call ctx end-goal goal-map goal-deps))
+  [ctx end-goal goal-map]
+  (m/goal-maker-call ctx end-goal goal-map))
 
 
 #_
 (defmethod goal-maker-call :in-thread
-  [ctx end-goal goal-map goal-deps]
+  [ctx end-goal goal-map]
   `(let [r# (clojure.core.async/promise-chan)]
      (clojure.core.async/thread
        (try
          (clojure.core.async/put! r#
-                                  ~(m/goal-maker-call ctx end-goal goal-map goal-deps))
+                                  ~(m/goal-maker-call ctx end-goal goal-map))
          (catch Throwable th#
            (clojure.core.async/put! r# th#))))
      r#))
 
 (defmethod goal-maker-call :in-go
-  [ctx end-goal goal-map goal-deps]
+  [ctx end-goal goal-map]
   `(let [r# (clojure.core.async/promise-chan)]
      (clojure.core.async/go
        (try
          (clojure.core.async/put! r#
-                                  ~(m/goal-maker-call ctx end-goal goal-map goal-deps))
+                                  ~(m/goal-maker-call ctx end-goal goal-map))
          (catch Throwable th#
            (clojure.core.async/put! r# th#))))
      r#))

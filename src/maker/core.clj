@@ -107,8 +107,7 @@
   [_ctx goal-map]
   (:goal-local goal-map))
 
-;FIXME goal-deps should not be param, neither end-goal-map should be
-(defmulti goal-maker-call (fn [_ctx _end-goal-map goal-map _goal-deps]
+(defmulti goal-maker-call (fn [_ctx _end-goal-map goal-map]
                             (when (-> goal-map
                                       :goal-var
                                       meta
@@ -118,9 +117,9 @@
                               :multicase)))
 
 (defmethod goal-maker-call :default
-  [{:keys [goal-realisation-fn] :as ctx} _ goal-map goal-deps]
+  [{:keys [goal-realisation-fn] :as ctx} _ goal-map]
   `(~(goal-maker-symbol goal-map)
-     ~@(map (partial goal-realisation-fn ctx) goal-deps)))
+     ~@(map (partial goal-realisation-fn ctx) (goal-map-dep-goal-maps goal-map))))
 
 (defn- dependencies
   [goal-var]
@@ -180,10 +179,7 @@
         sorted-goal-maps (map (partial goal-var-goal-map context-ns) goal-vars-sorted)
         local-defs (->> sorted-goal-maps
                         (mapcat (juxt :goal-local
-                                      #(goal-maker-call-fn ctx
-                                                           goal-map
-                                                           %
-                                                           (goal-map-dep-goal-maps %))))
+                                      #(goal-maker-call-fn ctx goal-map %)))
                         (into []))
         ;FIXME too implicit and needlessly limited
         undefined-goals (remove (comp :arglists meta :goal-var) sorted-goal-maps)]
@@ -362,9 +358,9 @@
        ~(make-with ctx end-goal &env))))
 
 (defmethod goal-maker-call :multicase
-  [{:keys [goal-realisation-fn] :as ctx} end-goal-map goal-map goal-deps]
+  [{:keys [goal-realisation-fn] :as ctx} end-goal-map goal-map]
   (let [cases (@cases-map-atom goal-map)
-        dispatch-goal-map (first goal-deps)]
+        dispatch-goal-map (-> goal-map goal-map-dep-goal-maps first)]
 
     `(case ~(goal-realisation-fn ctx dispatch-goal-map)
 
