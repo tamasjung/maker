@@ -341,24 +341,15 @@
                  symbol)
              (meta name)))
 
-;FIXME could this be simpler?
 (defn args-map
-  [definitions args-in]
-  (loop [rest-defintions definitions
-         structured-args {}
-         args args-in]
-    (if-not (seq rest-defintions)
-      (assoc structured-args :body (seq args))
-      (let [[next-arg & next-args] args]
-        (if-not next-arg
-          (assoc structured-args :body nil)
-          (let [[_skipped-defs [definition & remaining-definitions]]
-                (split-with #((complement (second %)) next-arg) rest-defintions)]
-            (if-not definition
-              (assoc structured-args :body (seq args))
-              (recur remaining-definitions
-                     (assoc structured-args (first definition) next-arg)
-                     next-args))))))))
+  ([defs args]
+   (args-map defs args {}))
+  ([[[k validator] & rest-defs] [next-arg & rest-args :as args] result]
+   (if (and validator next-arg)
+     (if (validator next-arg)
+       (recur rest-defs rest-args (assoc result k next-arg))
+       (recur rest-defs args result))
+     (assoc result :body args))))
 
 (defn rebuild-args
   [& args]
