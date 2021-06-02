@@ -2,9 +2,9 @@
   (:require [clojure.test :refer :all]
             [clojure.core.async :as a]
             [clojure.pprint :refer [pprint]]
-            [maker.async :refer [defgoal> defgoal< make> take-in!! to-promise-chan
-                                 pipe-to-promise-chan] :as ma]
-            [maker.core :refer :all])
+            [maker.async :refer :all]
+            [maker.core :refer :all]
+            [maker.dev :refer :all])
   (:import (clojure.lang ExceptionInfo)))
 
 ;-------------------------------------------------------------------------------
@@ -83,7 +83,17 @@
     ch))
 
 (deftest test-single-async
-  (is (= 1 (take-in!! (make single-async) 1000))))
+  (is (= 1 (take-in!! (make single-async) 1000)))
+  (is (= 1 (take-in!! (make> single-async) 1000))))
+
+;-------------------------------------------------------------------------------
+
+(defgoal single-sync
+  []
+  11)
+
+(deftest test-single-sync
+  (is (= 11 (-> (make> single-sync) (take-in!! 1000)))))
 
 ;-------------------------------------------------------------------------------
 ;async handling of multiple errors
@@ -172,4 +182,5 @@
 
   (is (thrown-with-msg? Throwable #"oops"
                         (take-in!! (make> e3) 1000))))
+
 

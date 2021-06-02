@@ -30,18 +30,19 @@
   [simple]
   (str simple "-other"))
 
-(def other2' "other:2")
+;; a direct definition
+(def other2' "other2")
 
 ;; the defgoal macro puts ''' at the end of the goal name
 (defgoal another
   "Just another goal but now using the defgoal - the same effect."
   [other other2]
-  (str other "-another"))
+  (str other "-" other2 "-another"))
 
 
 (deftest base-transitive-dep-test
   (is (= (make another)
-         "simple-other-another"
+         "simple-other-other2-another"
          (let [simple (simple')
                other (other' simple)
                other2 other2'
@@ -51,7 +52,7 @@
   ;; shadow the original definition simply with let
   (is (= (let [simple "changed"]
            (make another))
-         "changed-other-another")))
+         "changed-other-other2-another")))
 
 ;-------------------------------------------------------------------------------
 
@@ -196,9 +197,14 @@
 ; Check the expansion of make below.
 (deftest choice-test
   (is (= (let [choice-env :choice1]
-             ;FIXME doesn't work (stackoverflow) if choice the end-goal
              (make end))
-         "aadd1:end")))
+         "aadd1:end"))
+  (is (= (let [choice-env :choice1]
+           (make choice))
+         "aadd1"))
+  (is (= (let [choice-env :choice2]
+           (make end))
+         "ab2:end")))
 
 ;-------------------------------------------------------------------------------
 

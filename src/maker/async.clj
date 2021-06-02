@@ -16,7 +16,7 @@
   [goal-var]
   (-> goal-var meta ::promise-chan))
 
-(defn- goal-realisation
+(defn- goal-realisation-async
   "For params"
   [{:keys [env context-ns in-go]} goal-var]
   (let [goal-local (m/goal-var-goal-local context-ns goal-var)]
@@ -33,19 +33,19 @@
              (throw res#)
              res#))))))
 
-(defmulti render-assignment (fn [_ctx {:keys [goal-var] :as goal-model}]
-                              (cond
-                                (or (promise-chan-flag? goal-var)
-                                    (-> goal-var meta ::m/defgoalfn))
-                                :direct
+(defmulti render-assignment-async (fn [_ctx {:keys [goal-var] :as goal-model}]
+                                    (cond
+                                      (or (promise-chan-flag? goal-var)
+                                          (-> goal-var meta ::m/defgoalfn))
+                                      :direct
 
-                                :else :in-go)))
+                                      :else :in-go)))
 
 #_(defmethod goal-maker-call [::sequential ::async-goal-channel]
     [ctx end-goal goal-map]
     `(clojure.core.async/<!! ~(m/goal-maker-call ctx end-goal goal-map)))
 
-(defmethod render-assignment :direct
+(defmethod render-assignment-async :direct
   [ctx goal-model]
   (m/render-assignment ctx goal-model))
 
@@ -61,7 +61,7 @@
              (clojure.core.async/put! r# th#))))
        r#))
 
-(defmethod render-assignment :in-go
+(defmethod render-assignment-async :in-go
   [ctx goal-model]
   (let [[local call] (m/render-assignment ctx goal-model)]
     [local
@@ -79,9 +79,9 @@
   (let [env (or env {})]
     `(clojure.core.async/go
        (try
-         (a/<! ~(m/make-with {:render-assignment-fn render-assignment
+         (a/<! ~(m/make-with {:render-assignment-fn render-assignment-async
                               :var-to-local-fn (partial m/goal-var-goal-local *ns*)
-                              :goal-realisation-fn (partial goal-realisation)
+                              :goal-realisation-fn (partial goal-realisation-async)
                               :context-ns *ns*
                               :in-go true
                               :env env}

@@ -18,8 +18,8 @@
 (defn ppr
   "Prints a form removing some namespaces and stuff to make it more readable."
   [v]
-  (-> (with-out-str (clojure.pprint/pprint v))
-      (str/replace #"clojure.core\/" "")
+  (-> (with-out-str (pprint v))
+      (str/replace #"clojure.core.*?\/" "")
       (str/replace (re-pattern (str "\\(" (ns-name *ns*) "/")) "(")
       (str/replace #"java\.lang\." "")
       (str/replace #"__\d+__auto__" "#")
