@@ -1,23 +1,31 @@
 (ns maker.graph)
 
-(defn topsort-component
-  "Topological sort of a directed graph.
-  Throws exception if the graph contains any cycles.
-  This is a slightly modified version of loom.alg-generic/topsort-component."
-  ([successors stop? start]
-   (loop [seen #{}
-          explored #{}
-          result []
-          stack [start]]
-     (if (empty? stack)
-       result
-       (let [v (peek stack)]
-         (let [seen (conj seen v)
-               us (remove explored (successors v))]
-           (if (seq us)
-             (if-let [circular (some seen us)]
-               (throw (ex-info "Circular" {:circular circular}))
-               (recur seen explored result (conj stack (first us))))
-             (if (stop? v)
-               (conj result v)
-               (recur seen (conj explored v) (conj result v) (pop stack))))))))))
+(defn first-topsorted
+  "Next step of a topological sort of a directed graph.
+  Throws exception if the graph contains any cycles."
+  ([successors-fn {:keys [stack stack-set sorted-set]
+                   :as state}]
+   (loop [sorted-set sorted-set
+          stack-vec stack
+          stack-set stack-set]
+     (if (empty? stack-vec)
+       [nil state]
+       (let [v (peek stack-vec)]
+         (if-let [first-unsorted-successor (->> (successors-fn v)
+                                                (remove sorted-set)
+                                                first)]
+           (if (stack-set first-unsorted-successor)
+             (throw (ex-info "Circular dependency: " {:circular v}))
+             (recur sorted-set
+                    (conj stack-vec first-unsorted-successor)
+                    (conj stack-set first-unsorted-successor)))
+           [v {:stack (pop stack-vec)
+               :stack-set (disj stack-set v)
+               :sorted-set (conj sorted-set v)}]))))))
+
+(defn top-sorting
+  [successor-fn state]
+  (lazy-seq
+    (let [[v new-state :as i] (first-topsorted successor-fn state)]
+      (when (some? v)
+        (cons i (top-sorting successor-fn new-state))))))

@@ -13,77 +13,86 @@
     res))
 
 (defn promise-chan-flag?
-  [goal-map]
-  (-> goal-map :goal-var meta ::promise-chan true?))
+  [goal-var]
+  (-> goal-var meta ::promise-chan))
 
 (defn- goal-realisation
   "For params"
-  [env ctx {:keys [goal-local] :as goal-map}]
-  (if (or (-> goal-local env)
-          (-> goal-map :goal-var meta ::m/defgoalfn true?))
-    goal-local
-    (if (-> ctx ::in-go true?)
-      `(let [res# (clojure.core.async/<! ~goal-local)]
-         (if (instance? Throwable res#)
-           (throw res#)
-           res#))
-      `(let [res# (clojure.core.async/<!! ~goal-local)]
-         (if (instance? Throwable res#)
-           (throw res#)
-           res#)))))
+  [{:keys [env context-ns in-go]} goal-var]
+  (let [goal-local (m/goal-var-goal-local context-ns goal-var)]
+    (if (or (env goal-local)
+            (-> goal-var meta ::m/defgoalfn))
+      goal-local
+      (if in-go
+        `(let [res# (clojure.core.async/<! ~goal-local)]
+           (if (instance? Throwable res#)
+             (throw res#)
+             res#))
+        `(let [res# (clojure.core.async/<!! ~goal-local)]
+           (if (instance? Throwable res#)
+             (throw res#)
+             res#))))))
 
-(defmulti goal-maker-call (fn [_ctx _end-goal-map goal-map]
-                            (cond
-                              (or (promise-chan-flag? goal-map)
-                                  (-> goal-map :goal-var meta ::m/defgoalfn true?))
-                              :direct
+(defmulti render-assignment (fn [_ctx {:keys [goal-var] :as goal-model}]
+                              (cond
+                                (or (promise-chan-flag? goal-var)
+                                    (-> goal-var meta ::m/defgoalfn))
+                                :direct
 
-                              :else :in-go)))
+                                :else :in-go)))
 
 #_(defmethod goal-maker-call [::sequential ::async-goal-channel]
     [ctx end-goal goal-map]
     `(clojure.core.async/<!! ~(m/goal-maker-call ctx end-goal goal-map)))
 
-(defmethod goal-maker-call :direct
-  [ctx end-goal goal-map]
-  (m/goal-maker-call ctx end-goal goal-map))
+(defmethod render-assignment :direct
+  [ctx goal-model]
+  (m/render-assignment ctx goal-model))
 
 
-#_
-(defmethod goal-maker-call :in-thread
-  [ctx end-goal goal-map]
-  `(let [r# (clojure.core.async/promise-chan)]
-     (clojure.core.async/thread
+#_(defmethod goal-maker-call :in-thread
+    [ctx end-goal goal-map]
+    `(let [r# (clojure.core.async/promise-chan)]
+       (clojure.core.async/thread
+         (try
+           (clojure.core.async/put! r#
+                                    ~(m/goal-maker-call ctx end-goal goal-map))
+           (catch Throwable th#
+             (clojure.core.async/put! r# th#))))
+       r#))
+
+(defmethod render-assignment :in-go
+  [ctx goal-model]
+  (let [[local call] (m/render-assignment ctx goal-model)]
+    [local
+     `(let [r# (clojure.core.async/promise-chan)]
+        (clojure.core.async/go
+          (try
+            (clojure.core.async/put! r#
+                                     ~call)
+            (catch Throwable th#
+              (clojure.core.async/put! r# th#))))
+        r#)]))
+
+(defn- make>-with
+  [goal env]
+  (let [env (or env {})]
+    `(clojure.core.async/go
        (try
-         (clojure.core.async/put! r#
-                                  ~(m/goal-maker-call ctx end-goal goal-map))
+         (a/<! ~(m/make-with {:render-assignment-fn render-assignment
+                              :var-to-local-fn (partial m/goal-var-goal-local *ns*)
+                              :goal-realisation-fn (partial goal-realisation)
+                              :context-ns *ns*
+                              :in-go true
+                              :env env}
+                             goal
+                             env))
          (catch Throwable th#
-           (clojure.core.async/put! r# th#))))
-     r#))
-
-(defmethod goal-maker-call :in-go
-  [ctx end-goal goal-map]
-  `(let [r# (clojure.core.async/promise-chan)]
-     (clojure.core.async/go
-       (try
-         (clojure.core.async/put! r#
-                                  ~(m/goal-maker-call ctx end-goal goal-map))
-         (catch Throwable th#
-           (clojure.core.async/put! r# th#))))
-     r#))
+           th#)))))
 
 (defmacro make>
   [goal]
-  `(clojure.core.async/go
-     (try
-       (a/<! ~(m/make-with {:goal-maker-call-fn goal-maker-call
-                            :goal-realisation-fn (partial goal-realisation (or &env {}))
-                            :context-ns *ns*
-                            ::in-go true}
-                           goal
-                           &env))
-       (catch Throwable th#
-         th#))))
+  (make>-with goal &env))
 
 
 (defmacro defgoal>
@@ -115,7 +124,7 @@
     :default
     sth))
 
-(defn take-in??
+(defn take-in!!
   ([ch msec]
    (valid?? (a/alt!! ch ([v] v)
                      (a/timeout msec) ([] (ex-info "Timed out" {:ch (str ch)}))))))

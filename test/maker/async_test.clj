@@ -1,7 +1,8 @@
 (ns maker.async-test
   (:require [clojure.test :refer :all]
             [clojure.core.async :as a]
-            [maker.async :refer [defgoal> defgoal< make> take-in?? to-promise-chan
+            [clojure.pprint :refer [pprint]]
+            [maker.async :refer [defgoal> defgoal< make> take-in!! to-promise-chan
                                  pipe-to-promise-chan] :as ma]
             [maker.core :refer :all])
   (:import (clojure.lang ExceptionInfo)))
@@ -53,23 +54,24 @@
       (a/pipe (a/into [] res-ch) res)
       res)))
 
-
 ;;make> will resolve the dependencies asynchronously in parallel and returns
 ;;a channel.
 (deftest test-async
-  (let [n 100
-        m 100]
-    ;(make> contents)
-    (is (= (range m)
-           (->> (range m)
-                (map (fn [n] (future (-> (make> contents) (take-in?? 10000)
-                                         count))))
-                (map deref))))
-    (is (= (-> urls make> (take-in?? 1000) count)
+  (let [n 100]
+    (is (= (-> urls make> (take-in!! 1000) count)
            n)))
   (let [url "u"]
-    (is (= (-> (make content) (take-in?? 1000))
+    (is (= (-> (make content) (take-in!! 1000))
            "ucontent"))))
+
+(deftest test-parallel
+  (let [m 100]
+    (is (= (range m)
+           (->> (range m)
+                (mapv (fn [n] (future (-> (make> contents) (take-in!! 1000)
+                                          count))))
+                (mapv deref)))))
+  )
 
 ;-------------------------------------------------------------------------------
 ;simple async
@@ -81,7 +83,7 @@
     ch))
 
 (deftest test-single-async
-  (is (= 1 (take-in?? (make> single-async) 1000))))
+  (is (= 1 (take-in!! (make single-async) 1000))))
 
 ;-------------------------------------------------------------------------------
 ;async handling of multiple errors
@@ -109,7 +111,7 @@
 
 (deftest test-two-errors
   (let [res (make> err-result)]
-    (is (thrown-with-msg? ExceptionInfo #"Err0|Err1" (take-in?? res 1000)))))
+    (is (thrown-with-msg? ExceptionInfo #"Err0|Err1" (take-in!! res 1000)))))
 
 (defn max-mem'
   []
@@ -126,11 +128,12 @@
 (deftest async-mem-leak
 
   (dotimes [_ 10]
-    (is (thrown? ExceptionInfo (take-in?? (make> a-error) 100)))))
+    (is (thrown? ExceptionInfo (take-in!! (make> a-error) 100)))))
 
 (deftest missing-def
   (try
-    (eval '(do (ns ns-missing-def1 (:require [maker.async :refer [defgoal> make>]]))
+    (eval '(do (ns ns-missing-def1
+                 (:require [maker.async :refer [defgoal> make>]]))
                (defgoal> aa [bb])
                (clojure.core.async/<!! (make> aa))))
     (is false)
@@ -138,14 +141,15 @@
       (is (= 'bb (-> ei (.getCause) ex-data :of :arglists ffirst)))))
 
   (try
-    (eval '(do (ns ns-missing-def2 (:require [maker.async :refer [defgoal> take-in?? make>]]
-                                 [maker.core :refer [defgoal?]]))
+    (eval '(do (ns ns-missing-def2
+                 (:require [maker.async :refer [defgoal> take-in!! make>]]
+                           [maker.core :refer [defgoal?]]))
                (defgoal? bbb)
                (defgoal> aaa [bbb])
-               (take-in?? (make> aaa) 1000)))
+               (take-in!! (make> aaa) 1000)))
     (is false)
     (catch Throwable ei
-      (is (= 'bbb (-> ei (.getCause) ex-data :goals first))))))
+      (is (= 'bbb' (-> ei (.getCause) ex-data :meta :name))))))
 
 
 (defgoal e1
@@ -167,5 +171,5 @@
 
 
   (is (thrown-with-msg? Throwable #"oops"
-                        (take-in?? (make> e3) 1000))))
+                        (take-in!! (make> e3) 1000))))
 

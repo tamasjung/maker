@@ -4,9 +4,9 @@
             [clojure.pprint :refer [pprint]]
             [ns2 :refer [ns2a' ns3a-proxy' ns2i' ns2b']]    ;the point is: ns3 shouldn't be required directly here ever
             [ns1 :refer [ns1a']]
+    ;FIXME below
             [clojure.spec.test.alpha :as stest]
-            [clojure.spec.gen.alpha :as gen])
-  (:import (clojure.lang ExceptionInfo)))
+            [clojure.spec.gen.alpha :as gen]))
 
 ;-------------------------------------------------------------------------------
 
@@ -30,10 +30,12 @@
   [simple]
   (str simple "-other"))
 
+(def other2' "other:2")
+
 ;; the defgoal macro puts ''' at the end of the goal name
 (defgoal another
   "Just another goal but now using the defgoal - the same effect."
-  [other]
+  [other other2]
   (str other "-another"))
 
 
@@ -42,7 +44,8 @@
          "simple-other-another"
          (let [simple (simple')
                other (other' simple)
-               another (another' other)]
+               other2 other2'
+               another (another' other other2)]
            another)))
 
   ;; shadow the original definition simply with let
@@ -154,34 +157,38 @@
 
 (defn choice-dep-a'
   []
-  1)
+  "a")
 
 (defn choice-dep-b'
+  [choice-dep-a]
+  (str choice-dep-a "b"))
+
+(defn choice-add'
   []
-  2)
+  "add")
 
 
 (defn choice-dispatch'
-  [choice-env]
+  [choice-env choice-add]
   choice-env)
 
 (defmulticase choice choice-dispatch)
 
 (defn choice1'
-  [choice-dep-a]
-  (str choice-dep-a))
+  [choice-dep-a choice-add]
+  (str choice-dep-a choice-add "1"))
 
 (register-case choice :choice1 choice1)
 
 (defn choice2'
   [choice-dep-b]
-  (str choice-dep-b))
+  (str choice-dep-b "2"))
 
 (register-case choice :choice2 choice2)
 
 (defn end'
   [choice]
-  choice)
+  (str choice ":end"))
 
 ; b/c choice has the goal type m/case meta, the expansion of creating it will be
 ; (case ..) and the return value of 'choice' is used as the dispatcher and the
@@ -191,7 +198,7 @@
   (is (= (let [choice-env :choice1]
              ;FIXME doesn't work (stackoverflow) if choice the end-goal
              (make end))
-         "1")))
+         "aadd1:end")))
 
 ;-------------------------------------------------------------------------------
 
@@ -229,7 +236,6 @@
 (deftest circular-dep
   (is (re-find #"Circular"
                (try
-
                  (eval '(do
                           (use 'maker.core)
                           (defn self'
@@ -287,14 +293,14 @@
                  (catch Throwable ei
                    (-> ei (.getCause) str)))))
 
-  (is (= '[aaaa]
+  (is (= 'aaaa'
          (try
            (eval '(do (use 'maker.core)
                       (defgoal? aaaa)
                       (make aaaa)
                       nil))
            (catch Throwable ei
-             (-> ei (.getCause) ex-data :goals))))))
+             (-> ei (.getCause) ex-data :meta :name))))))
 
 ;-------------------------------------------------------------------------------
 ;configuration support
