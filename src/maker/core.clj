@@ -216,7 +216,7 @@
 
 (defn- free-text-to-symbol-chars
   [txt]
-  (subs (str/replace txt #"[^a-zA-Z0-9\*\+\!\-\_\'\?\<\>\=]" "-")
+  (subs (str/replace txt #"[^a-zA-Z0-9\*\+\!\-\_\'\?\<\>\=\:]" "-")
         0 (min 100 (count txt))))
 
 (defn render-case-assignment

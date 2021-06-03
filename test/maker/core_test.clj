@@ -179,7 +179,9 @@
   [choice-dep-a choice-add]
   (str choice-dep-a choice-add "1"))
 
-(defcasegoal choice :choice1)
+(defcasegoal choice :choice1
+  [choice-dep-a choice-add]
+  (str choice-dep-a choice-add "1"))
 
 (register-case choice :choice1 choice1)
 
