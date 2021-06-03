@@ -233,7 +233,8 @@
         ;only for debugging purpose, it will be on the stack-trace
         fn-name (-> (str dispatch-value
                          "-"
-                         (var-to-local-fn multi-goal-var))
+                         (var-to-local-fn multi-goal-var)
+                         "-fn")
                     free-text-to-symbol-chars
                     gensym)
         assignments (reduce into []
@@ -427,3 +428,10 @@
            (goal-sym-goal-var *ns* '~case-goal)))
   ([dispatcher case-goal]
    `(register-case ~dispatcher ~case-goal ~case-goal)))
+
+(defmacro defcasegoal
+  [multi-goal dispatch-value & args]
+  (let [case-goal (-> (str multi-goal "-" dispatch-value) free-text-to-symbol-chars symbol)]
+    `(do
+       (defgoal ~case-goal ~@args)
+       (register-case ~multi-goal ~dispatch-value ~case-goal))))
