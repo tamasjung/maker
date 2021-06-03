@@ -36,7 +36,7 @@ of the parameters
 
 ## Usage, learn
 ```clj
-[maker "2.2.0"]
+[maker "3.0.0"]
 ```
 To learn [check out](test/maker/core_test.clj) and play with the didactic tests.
 
