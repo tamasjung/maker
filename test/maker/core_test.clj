@@ -3,10 +3,7 @@
             [maker.core :as m :refer :all]
             [clojure.pprint :refer [pprint]]
             [ns2 :refer [ns2a' ns3a-proxy' ns2i' ns2b']]    ;the point is: ns3 shouldn't be required directly here ever
-            [ns1 :refer [ns1a']]
-    ;FIXME below
-            [clojure.spec.test.alpha :as stest]
-            [clojure.spec.gen.alpha :as gen]))
+            [ns1 :refer [ns1a']]))
 
 ;-------------------------------------------------------------------------------
 
