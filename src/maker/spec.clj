@@ -2,7 +2,7 @@
   (:require [clojure.spec.alpha :as s]
             [maker.core :as m]))
 
-(defn goal-map-spec
+(defn- goal-map-spec
   [goal-var]
   (let [sp (-> goal-var
                m/goal-maker-symbol
