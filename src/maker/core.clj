@@ -130,7 +130,17 @@
                                   (= end-goal-var v)))))))
 
 
-(def cases-map-atom (atom {}))
+(defn- goal-sym-to-multi-registry-name
+  [sym]
+  (symbol (str sym "-registry")))
+
+(defn- goalvar-to-multi-registry
+  [goal-var]
+  (->> goal-var
+       meta
+       :name
+       goal-sym-to-multi-registry-name
+       (ns-resolve (-> goal-var meta :ns))))
 
 (defmulti goal-model (fn [goal-var _]
                        (when (multicase? goal-var)
@@ -170,7 +180,9 @@
         state-without-multi (-> sorting-state
                                 (update :sorted-set disj goal-var))
         case-models (->> goal-var
-                         (@cases-map-atom)
+                         goalvar-to-multi-registry
+                         deref                              ;deref the var
+                         deref                              ;deref the atom
                          (mapv (partial case-model goal-var state-without-multi)))]
     {:goal-var goal-var
      :dispatch-goal-var dispatch-goal-var
@@ -411,21 +423,32 @@
   [goal-name & fdecl]
   (let [{:keys [doc dispatch-goal-name]} (args-map [[:doc string?]
                                                     [:dispatch-goal-name symbol?]]
-                                                   fdecl)]
+                                                   fdecl)
+        registry-name (-> goal-name
+                          with-maker-postfix
+                          symbol
+                          goal-sym-to-multi-registry-name)]
 
     (assert dispatch-goal-name)
-    `(defn ~(vary-meta (maker-fn-name-with-goal-meta goal-name)
-                       assoc
-                       ::multicase true)
-       ;FIXME why fn?
-       ~@(rebuild-args doc [dispatch-goal-name]
-                       [(list 'throw '(ex-info "Placeholder only, this function should not be called directly." {}))]))))
+
+    `(do
+       (def ~registry-name (atom {}))
+       (defn ~(vary-meta (maker-fn-name-with-goal-meta goal-name)
+                         assoc
+                         ::multicase true)
+         ;FIXME why fn?
+         ~@(rebuild-args doc [dispatch-goal-name]
+                         [(list 'throw '(ex-info "Placeholder only, this function should not be called directly." {}))])))))
 
 (defmacro register-case
   ([multigoal dispatch-value case-goal]
-   `(swap! cases-map-atom assoc-in [(goal-sym-goal-var *ns* '~multigoal)
-                                    ~dispatch-value]
-           (goal-sym-goal-var *ns* '~case-goal)))
+   (let [multi-goal-registry (-> (goal-sym-goal-var *ns* multigoal)
+                                 (goalvar-to-multi-registry)
+                                 goal-maker-symbol)]
+     `(swap! ~multi-goal-registry
+             assoc
+             ~dispatch-value
+             (goal-sym-goal-var *ns* '~case-goal))))
   ([dispatcher case-goal]
    `(register-case ~dispatcher ~case-goal ~case-goal)))
 
