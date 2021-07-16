@@ -1,11 +1,17 @@
 (ns maker.core-test
-  (:require [clojure.test :refer :all]
-            [maker.core :as m :refer :all]
-            [clojure.pprint :refer [pprint]]
+  #?(:cljs (:require-macros [maker.core :refer [defgoal defgoal?]]
+                            [maker.cljs-core :refer [defmulticase defcasegoal register-case
+                                                     make defgoalfn with-config]]))
+  (:require #?(:clj [clojure.test :refer :all])
+            #?(:cljs [cljs.test :refer-macros [deftest is testing run-tests]])
+            #?(:clj [maker.core :refer :all])
             [ns2 :refer [ns2a' ns3a-proxy' ns2i' ns2b']]    ;the point is: ns3 shouldn't be required directly here ever
             [ns1 :refer [ns1a']]))
 
 ;-------------------------------------------------------------------------------
+#_(defmacro zzz [& forms]
+    `(do ~@(take-while #(not= % :ZZZ) forms)))
+;(require '[clojure.pprint :refer [pprint]]);FIXME remove
 
 (defn simple'
   []
@@ -19,8 +25,9 @@
          ;let's make the goal
          (make simple)
          ;the make macro expands to
-         (let [simple (simple')]
-           simple))))
+         #_(let [simple (simple')]
+             simple))))
+
 
 ;; to define a maker function just put a ''' at the end of name.
 (defn other'
@@ -50,6 +57,7 @@
   (is (= (let [simple "changed"]
            (make another))
          "changed-other-other2-another")))
+
 
 ;-------------------------------------------------------------------------------
 
@@ -107,7 +115,10 @@
   ;;factor' was called 10 times, usually this is not what you want...so read on.
   (is (= @call-counter 10)))
 
-
+(->
+  '(defgoalfn collected-item-fn [iterator-item] collected-item)
+  macroexpand
+  (prn))
 (defgoalfn collected-item-fn [iterator-item] collected-item)
 ;TBD What if the collected-item is a <>
 
@@ -121,18 +132,22 @@
          18))
   (is (= 1 @call-counter)))
 
-(defgoalfn g-fn [ns2i] ns2b)
+(prn (macroexpand '(defgoalfn g-fn [ns2i] ns2b)))
+;FIXME
+#_(defgoalfn g-fn [ns2i] ns2b)
+#_(deftest cross-ns-goalfn
+    (is (= "221" ((make g-fn) 1))))
 
-(deftest cross-ns-goalfn
-  (is (= "221" ((make g-fn) 1))))
+#?(:clj
+   (deftest test-spec
+     (eval '(do (use 'maker.core)
+                (defgoal sb [])
+                (defgoal sa [sb] 1)
+                (make sa)))))
 
-(deftest test-spec
-  (eval '(do (use 'maker.core)
-             (defgoal sb [])
-             (defgoal sa [sb] 1)
-             (make sa))))
 
-;-------------------------------------------------------------------------------
+
+;;-------------------------------------------------------------------------------
 ;works with multimethods
 
 (defn multi-dep'
@@ -178,10 +193,10 @@
 
 (register-case choice :choice1 choice1)
 
-;or defn and register-case in one step
+;or defn and register-case in one single step
 (defcasegoal choice :choice2
-  [choice-dep-b]
-  (str choice-dep-b "2"))
+             [choice-dep-b]
+             (str choice-dep-b "2"))
 
 (defn end'
   [choice]
@@ -193,7 +208,7 @@
 ; Check the expansion of make below.
 (deftest choice-test
   (is (= (let [choice-env :choice1]
-             (make end))
+           (make end))
          "aadd1:end"))
   (is (= (let [choice-env :choice1]
            (make choice))
@@ -201,6 +216,7 @@
   (is (= (let [choice-env :choice2]
            (make end))
          "ab2:end")))
+
 
 ;-------------------------------------------------------------------------------
 
@@ -231,20 +247,22 @@
            (make d-destr-goal))
          [111 222 {:a 111 :b 222} 1 [1 2]])))
 
+
+
 ;-------------------------------------------------------------------------------
 
 ;; circular dependency is an error at compile time
-
-(deftest circular-dep
-  (is (re-find #"Circular"
-               (try
-                 (eval '(do
-                          (use 'maker.core)
-                          (defn self'
-                            [self])
-                          (make self)))
-                 (catch Throwable th
-                   (str th))))))
+#?(:clj
+   (deftest circular-dep
+     (is (re-find #"Circular"
+                  (try
+                    (eval '(do
+                             (use 'maker.core)
+                             (defn self'
+                               [self])
+                             (make self)))
+                    (catch Throwable th
+                      (str th)))))))
 
 ;-------------------------------------------------------------------------------
 ;Example support for reloaded framework.
@@ -285,24 +303,24 @@
          0)))
 
 ;-------------------------------------------------------------------------------
+#?(:clj
+   (deftest missing-def
+     (is (re-find #"Undefined dependency"
+                  (try
+                    (eval '(do (use 'maker.core)
+                               (defgoal a [b])
+                               (make a)))
+                    (catch Throwable ei
+                      (-> ei (.getCause) str)))))
 
-(deftest missing-def
-  (is (re-find #"Undefined dependency"
-               (try
-                 (eval '(do (use 'maker.core)
-                            (defgoal a [b])
-                            (make a)))
-                 (catch Throwable ei
-                   (-> ei (.getCause) str)))))
-
-  (is (= 'aaaa'
-         (try
-           (eval '(do (use 'maker.core)
-                      (defgoal? aaaa)
-                      (make aaaa)
-                      nil))
-           (catch Throwable ei
-             (-> ei (.getCause) ex-data :meta :name))))))
+     (is (= 'aaaa'
+            (try
+              (eval '(do (use 'maker.core)
+                         (defgoal? aaaa)
+                         (make aaaa)
+                         nil))
+              (catch Throwable ei
+                (-> ei (.getCause) ex-data :meta :name)))))))
 
 ;-------------------------------------------------------------------------------
 ;configuration support
@@ -317,25 +335,28 @@
   [profile]
   {:maker.core-test/config-a (str (name profile) " is config")})
 
-(deftest test-config
-  (let [profile :staging]
-    (with-config [(let [profile :test]
-                    (keys (make my-config)))
-                  (make my-config)]
-                 (is (= (make configured)
-                        "staging is configured!!!")))))
+#?(:clj
+   (deftest test-config
+     (let [profile :staging]
+       (with-config [(let [profile :test]
+                       (keys (make my-config)))
+                     (make my-config)]
+                    (is (= (make configured)
+                           "staging is configured!!!"))))))
 
 (def direct-config {:maker.core-test/config-a "config"})
 
-(deftest test-direct-config
-  ;if the compile time and runtime configs are different
-  (with-config [(keys direct-config) direct-config]
-               (is (= (make configured)
-                      "configured!!!")))
-  ;if the two config is the same
-  (with-config direct-config
-               (is (= (make configured)
-                      "configured!!!"))))
+#?(:clj
+   (deftest test-direct-config
+     ;if the compile time and runtime configs are different
+     (with-config [[:maker.core-test/config-a] #_(keys direct-config) direct-config]
+                    #_(do [config-a 1]
+                          (is (= (make configured)
+                                 "configured!!!"))))
+     ;if the two config is the same
+     (with-config direct-config
+                    (is (= (make configured)
+                           "configured!!!")))))
 
 (defgoal shouldnt-be-called
   []
@@ -345,26 +366,27 @@
   [shouldnt-be-called config-a]
   (throw (ex-info "Never" {})))
 
-
-(deftest check-fails-fast-for-wrong-config
-  ;here the runtime config doesn't contain the 'promised' key
-  ;the other goal constructors are not called although the order of parameters
-  ;would implies that and it fails fast as it should
-  (is (thrown-with-msg? Throwable #"Missing config keys"
-                        (with-config [[:maker.core-test/config-a]
-                                      {}]
-                                     (make misconfigured)))))
-
-(deftest with-non-required-ns
-  (is (= (with-config {:ns3/ns3a 11}
-                      (make ns3a-proxy))
-         11)))
+#?(:clj
+   (deftest check-fails-fast-for-wrong-config
+     ;here the runtime config doesn't contain the 'promised' key
+     ;the other goal constructors are not called although the order of parameters
+     ;would implies that and it fails fast as it should
+     (is (thrown-with-msg? Throwable #"Missing config keys"
+                           (with-config [[:maker.core-test/config-a]
+                                         {}]
+                                        (make misconfigured))))))
+#?(:clj
+   (deftest with-non-required-ns
+     (is (= (with-config {:ns3/ns3a 11}
+                         (make ns3a-proxy))
+            11))))
 
 ;-------------------------------------------------------------------------------
-
-(deftest munge-test
-  (are [s res] (-> s inj-munge (= res))
-               "aa" "aa"
-               "a.b/c" "a+_b+!c"
-               "ab/c" "ab+!c"))
-
+#?(:clj
+   (deftest munge-test
+     (are [s res] (-> s non-q-sym (= res))
+                  "aa" "aa"
+                  "a.b/c" "a+_b+!c"
+                  "ab/c" "ab+!c")))
+#_
+(cljs.test/run-tests)

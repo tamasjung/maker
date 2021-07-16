@@ -3,8 +3,20 @@
             [clojure.string :as string]
             [maker.graph :as graph]
             [clojure.string :as str]))
+(require '[clojure.pprint :refer [pprint]])                 ;FIXME remove
+;dynamized functions b/c of clj-cljs differences
 
-(defn inj-munge
+(def ^:dynamic *meta-fn* meta)
+
+(def ^:dynamic *ns-resolve-fn* ns-resolve #_(fn [n s] #_(pprint ["ooo" n s] *err*) (ns-resolve n s)))
+
+(def ^:dynamic *ns-fn* #(do *ns*))
+
+(def ^:dynamic *ns-name-fn* ns-name)
+
+
+
+(defn non-q-sym
   "Injective munge"
   [s]
   (-> s
@@ -43,33 +55,33 @@
 (defn goal-maker-symbol
   "Calculates the goal maker fn's symbol"
   [goal-var]
-  (let [{:keys [ns name]} (meta goal-var)]
+  (let [{:keys [ns name]} (*meta-fn* goal-var)]
     (when name
       (->> [ns name]
            (string/join "/")
            symbol))))
-
-(defn goal-param-goal-local
-  [context-ns ns name]
-  (if (->> name with-maker-postfix symbol (ns-resolve context-ns))
-    (symbol name)
-    (-> [ns name]
-        (->> (string/join "/"))
-        inj-munge
-        symbol)))
-
-(defn goal-var-goal-local
-  [context-ns goal-var]
-  (goal-param-goal-local context-ns
-                         (-> goal-var meta :ns)
-                         (-> goal-var meta :name str without-maker-postfix)))
 
 (defn goal-sym-goal-var
   [ns goal-sym]
   (->> goal-sym
        with-maker-postfix
        symbol
-       (ns-resolve ns)))
+       (*ns-resolve-fn* ns)))
+
+(defn goal-param-goal-local
+  [context-ns ns name]
+  (if (goal-sym-goal-var context-ns name)
+    (symbol name)
+    (-> [ns name]
+        (->> (string/join "/"))
+        non-q-sym
+        symbol)))
+
+(defn goal-var-goal-local
+  [context-ns goal-var]
+  (goal-param-goal-local context-ns
+                         (-> goal-var *meta-fn* :ns)
+                         (-> goal-var *meta-fn* :name str without-maker-postfix)))
 
 (defn goal-realisation
   [ctx goal-var]
@@ -83,18 +95,19 @@
 
 (defn- dependencies
   [goal-var]
-  (let [{:keys [ns arglists]} (meta goal-var)]
+  #_(pprint ["deps" goal-var] *err*)
+  (let [{:keys [ns arglists] :as var-meta} (*meta-fn* goal-var)]
     (when (next arglists)
       ;multiarity is ambigious
-      (throw (ex-info (str "Multi-arity is not supported: " (:name meta)) {:meta meta})))
+      (throw (ex-info (str "Multi-arity is not supported: " (:name var-meta) arglists) {:meta var-meta})))
     (->> arglists
          first
-         (map (fn [goal-param]
-                (or (->> goal-param
-                         whole-param
-                         (goal-sym-goal-var ns))
-                    (throw (ex-info (str "Undefined dependency: " goal-param)
-                                    {:of (meta goal-var)}))))))))
+         (mapv (fn [goal-param]
+                 (or (->> goal-param
+                          whole-param
+                          (goal-sym-goal-var ns))
+                     (throw (ex-info (str "Undefined dependency: " goal-param " " var-meta (str "++" ns "++"))
+                                     {:of var-meta}))))))))
 
 (defn render-let
   [assignments]
@@ -107,7 +120,7 @@
 
 (defn multicase?
   [goal-var]
-  (-> goal-var meta ::multicase true?))
+  (-> goal-var *meta-fn* ::multicase true?))
 
 (defn- take-until
   [pred coll]
@@ -129,18 +142,20 @@
         (take-until (fn [[v]] (or (multicase? v)
                                   (= end-goal-var v)))))))
 
-
 (defn- goal-sym-to-multi-registry-name
   [sym]
   (symbol (str sym "-registry")))
 
 (defn- goalvar-to-multi-registry
   [goal-var]
+  #_(pprint ["gtmr" goal-var *ns-resolve-fn*] *err*)
   (->> goal-var
-       meta
+       *meta-fn*
        :name
        goal-sym-to-multi-registry-name
-       (ns-resolve (-> goal-var meta :ns))))
+       (*ns-resolve-fn* (-> goal-var *meta-fn* :ns))))
+
+(def ^:dynamic *goal-var-to-cases-fn* (comp deref #_the_atom deref #_the_var goalvar-to-multi-registry))
 
 (defmulti goal-model (fn [goal-var _]
                        (when (multicase? goal-var)
@@ -148,6 +163,7 @@
 
 (defn case-model
   [multi-goal-var sorting-state [dispatch-value case-goal-var]]
+  #_(pprint ["cm" dispatch-value case-goal-var] *err*)
   (let [case-dep-and-states (sorted-deps sorting-state case-goal-var)
         ;since the case goal is 'sorted' then the multicase-goal is sorted too
         ;let's put into the 'state' manually
@@ -180,9 +196,7 @@
         state-without-multi (-> sorting-state
                                 (update :sorted-set disj goal-var))
         case-models (->> goal-var
-                         goalvar-to-multi-registry
-                         deref                              ;deref the var
-                         deref                              ;deref the atom
+                         *goal-var-to-cases-fn*
                          (mapv (partial case-model goal-var state-without-multi)))]
     {:goal-var goal-var
      :dispatch-goal-var dispatch-goal-var
@@ -204,10 +218,10 @@
                                 (multicase? goal-var)
                                 ::multicase
 
-                                (-> goal-var meta :declared true?)
+                                (-> goal-var *meta-fn* :declared true?)
                                 ::declaration
 
-                                (-> goal-var meta :arglists nil?)
+                                (-> goal-var *meta-fn* :arglists nil?)
                                 ::direct-def)))
 
 (defmethod render-assignment ::direct-def
@@ -217,14 +231,14 @@
 
 (defmethod render-assignment ::declaration
   [_ {:keys [goal-var]}]
-  (throw (ex-info (str "Unbounded goal:" (-> goal-var :meta :name))
-                  {:meta (meta goal-var)})))
+  (throw (ex-info (str "Unbounded goal:" (-> goal-var *meta-fn* :name))
+                  {:meta (*meta-fn* goal-var)})))
 
 (defmethod render-assignment :default
   [{:keys [var-to-local-fn goal-realisation-fn] :as ctx} {:keys [goal-var used-dep-vars]}]
   [(var-to-local-fn goal-var)
    `(~(goal-maker-symbol goal-var)
-      ~@(map (partial goal-realisation-fn ctx) used-dep-vars))])
+      ~@(mapv (partial goal-realisation-fn ctx) used-dep-vars))])
 
 (defn- free-text-to-symbol-chars
   [txt]
@@ -270,8 +284,8 @@
   ([goal env]
    (make-with {:render-assignment-fn render-assignment
                :goal-realisation-fn goal-realisation
-               :context-ns *ns*
-               :var-to-local-fn (partial goal-var-goal-local *ns*)}
+               :context-ns (*ns-fn*)
+               :var-to-local-fn (partial goal-var-goal-local (*ns-fn*))}
               goal
               env))
   ([{:keys [context-ns render-assignment-fn] :as ctx} goal-sym env]
@@ -287,16 +301,6 @@
           (mapv (partial render-assignment-fn ctx))
           render-let))))
 
-(defmacro make!
-  [goal print-fn]
-  (try
-    (let [ret (make-with goal &env)]
-      ((eval print-fn) ret)
-      ret)
-    (catch Throwable th
-      ((eval print-fn) th)
-      (throw th))))
-
 (defmacro make
   ([goal]
    (make-with goal &env)))
@@ -311,7 +315,7 @@
                                                  configs
                                                  [`(keys ~configs) configs])
         config-keys (eval compile-time-config-form)
-        context-ns-name (-> *ns* ns-name)
+        context-ns-name (-> (*ns-fn*) *ns-name-fn*)
         config-key-maps (->> config-keys
                              (map #(let [ns-sym (-> % namespace symbol)]
                                      {:config-key %
@@ -320,7 +324,7 @@
                                       :goal-local (if (= ns-sym context-ns-name)
                                                     ;TBD is this discrepancy fine?
                                                     (-> % name symbol)
-                                                    (goal-param-goal-local *ns*
+                                                    (goal-param-goal-local (*ns-fn*)
                                                                            ns-sym
                                                                            (-> % name symbol)))})))
         refers (->> config-key-maps
@@ -330,6 +334,7 @@
                                   :only `(quote [~the-name])
                                   :rename `(quote ~{the-name (-> % :goal-local with-maker-postfix symbol)})))))]
     ;TBD could we eliminate this 'hidden' code
+
     (->> refers
          (map eval)
          doall)
@@ -380,37 +385,38 @@
 (defn- build-refers-for
   [goal-vars]
   (->> goal-vars
-       (remove #(identical? *ns* (-> % meta :ns)))
-       (map #(let [the-name (-> % meta :name)]
-               (list 'refer `(quote ~(-> % meta :ns ns-name))
-                     :only `(quote [~the-name])
-                     :rename `(quote ~{the-name (-> (goal-var-goal-local *ns* %) with-maker-postfix symbol)}))))))
+       (remove #(= (*ns-fn*) (-> % *meta-fn* :ns)))         ;FIXME remove those which already have aliases in the (*ns-fn*) too
+       (mapv #(let [the-name (-> % *meta-fn* :name symbol)]
+                (list 'require `(quote [~(-> % *meta-fn* :ns *ns-name-fn*)
+                                        :refer [~the-name]
+                                        :rename ~{the-name (-> (goal-var-goal-local (*ns-fn*) %) with-maker-postfix symbol)}]))))))
 
 ;FIXME TBD it is possible without refer. A generic closure would be better.
 (defmacro defgoalfn                                         ;better name? dash or not dash
   [name & args]
+  ;(pprint ["iiii" name args] *err*)
   (let [{:keys [doc params body goal-sym]} (args-map [[:doc string?]
                                                       [:params vector?]
                                                       [:goal-sym symbol?]]
                                                      args)
-        param-goal-vars (map (partial goal-sym-goal-var *ns*) params)
+        param-goal-vars (map (partial goal-sym-goal-var (*ns-fn*)) params)
         ;param-map entry: [param-goal-map param]
         param-map (->> (map vector param-goal-vars params)
                        (into {}))
-        base-goal-var (goal-sym-goal-var *ns* goal-sym)
-        deps-goal-vars (->> base-goal-var dependencies)
+        base-goal-var (goal-sym-goal-var (*ns-fn*) goal-sym)
+        deps-goal-vars (dependencies base-goal-var)
         additional-param-goal-vars (remove (set param-goal-vars) deps-goal-vars)]
     `(do
        ~@(build-refers-for additional-param-goal-vars)
        (defgoal ~(vary-meta name assoc ::defgoalfn true)
          ~@(concat
              (rebuild-args doc (->> additional-param-goal-vars
-                                    (mapv (partial goal-var-goal-local *ns*)))
+                                    (mapv (partial goal-var-goal-local (*ns-fn*))))
                            body)
              [`(fn ~params
                  (~(-> goal-sym with-maker-postfix symbol)
-                   ~@(map #(or (param-map %)
-                               (goal-var-goal-local *ns* %)) deps-goal-vars)))])))))
+                   ~@(mapv #(or (param-map %)
+                                (goal-var-goal-local (*ns-fn*) %)) deps-goal-vars)))])))))
 
 (defmacro defgoal?
   [name]
@@ -442,19 +448,20 @@
 
 (defmacro register-case
   ([multigoal dispatch-value case-goal]
-   (let [multi-goal-registry (-> (goal-sym-goal-var *ns* multigoal)
+   (let [multi-goal-registry (-> (goal-sym-goal-var (*ns-fn*) multigoal)
                                  (goalvar-to-multi-registry)
                                  goal-maker-symbol)]
      `(swap! ~multi-goal-registry
              assoc
              ~dispatch-value
-             (goal-sym-goal-var *ns* '~case-goal))))
+             (goal-sym-goal-var (*ns-fn*) '~case-goal))))
   ([dispatcher case-goal]
-   `(register-case ~dispatcher ~case-goal ~case-goal)))
+   ~(apply (resolve 'maker.core/register-case) nil nil dispatcher case-goal [case-goal])))
 
 (defmacro defcasegoal
   [multi-goal dispatch-value & args]
   (let [case-goal (-> (str multi-goal "-" dispatch-value) free-text-to-symbol-chars symbol)]
     `(do
        (defgoal ~case-goal ~@args)
-       (register-case ~multi-goal ~dispatch-value ~case-goal))))
+       ~(apply (resolve 'maker.core/register-case) nil nil multi-goal dispatch-value [case-goal]))))
+

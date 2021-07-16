@@ -7,7 +7,7 @@
 ;-------------------------------------------------------------------------------
 
 (def n 200)                                                 ;700 is still good but too slow as part of test suite
-(def max-number-of-params 20) ;you can't specify more than 20 params in clojure
+(def max-number-of-params 20)                               ;you can't specify more than 20 params in clojure
 (def id "asdf")                                             ;you can play with the length of the symbols
 (def symbols (mapv #(hash-map :sym (symbol (str id %))
                               :n %)
@@ -19,8 +19,8 @@
              :when (seq i)
              :let [params (mapv :sym (->> i butlast (take-last max-number-of-params)))]]
          `(defgoal ~(-> i last :sym)
-                   ~params
-                   (+' ~@params ~(->> i last :n))))))
+            ~params
+            (+' ~@params ~(->> i last :n))))))
 
 (deftest static-test
   ;watch with macroexpand the huge let
