@@ -20,7 +20,7 @@
 
 (defn cljs-ns-resolve
   [ns-sym sym]
-  (pprint ["cljs-ns-resolve" ns-sym sym] *err*)
+  #_(pprint ["cljs-ns-resolve" ns-sym sym] *err*)
   (or (an-api/ns-resolve ns-sym sym)
       (when-let [syms-ns (-> (an-api/current-state) deref ::an/namespaces ns-sym :uses sym)]
         ;FIXME rename is not covered here

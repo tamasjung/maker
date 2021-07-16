@@ -115,10 +115,6 @@
   ;;factor' was called 10 times, usually this is not what you want...so read on.
   (is (= @call-counter 10)))
 
-(->
-  '(defgoalfn collected-item-fn [iterator-item] collected-item)
-  macroexpand
-  (prn))
 (defgoalfn collected-item-fn [iterator-item] collected-item)
 ;TBD What if the collected-item is a <>
 
@@ -132,11 +128,10 @@
          18))
   (is (= 1 @call-counter)))
 
-(prn (macroexpand '(defgoalfn g-fn [ns2i] ns2b)))
-;FIXME
-#_(defgoalfn g-fn [ns2i] ns2b)
-#_(deftest cross-ns-goalfn
-    (is (= "221" ((make g-fn) 1))))
+#?(:clj (defgoalfn g-fn [ns2i] ns2b))
+;FIXME it doesn't work for cljs
+#?(:clj (deftest cross-ns-goalfn
+          (is (= "221" ((make g-fn) 1)))))
 
 #?(:clj
    (deftest test-spec
@@ -388,5 +383,4 @@
                   "aa" "aa"
                   "a.b/c" "a+_b+!c"
                   "ab/c" "ab+!c")))
-#_
-(cljs.test/run-tests)
+
