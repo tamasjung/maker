@@ -6,7 +6,8 @@
             #?(:cljs [cljs.test :refer-macros [deftest is testing run-tests]])
             #?(:clj [maker.core :refer :all])
             [ns2 :refer [ns2a' ns3a-proxy' ns2i' ns2b']]    ;the point is: ns3 shouldn't be required directly here ever
-            [ns1 :refer [ns1a']]))
+            [ns1 :refer [ns1a']]
+            [clojure.string :as string]))
 
 ;-------------------------------------------------------------------------------
 #_(defmacro zzz [& forms]
@@ -68,6 +69,17 @@
   ;with-goals is an extended let, works well with goals from another namespaces.
   (is (= 22 (let [ns1a 11]
               (make ns2a)))))
+
+;-------------------------------------------------------------------------------
+
+(def direct' "d")
+
+(defn direct-ref' [^{:maker.core/goal direct} b]
+  (string/upper-case b))
+
+(deftest test-direct-goal
+  (is (= (make direct-ref)
+         "D")))
 
 ;-------------------------------------------------------------------------------
 (declare dd')
@@ -312,10 +324,15 @@
             (try
               (eval '(do (use 'maker.core)
                          (defgoal? aaaa)
-                         (make aaaa)
-                         nil))
+                         (make aaaa)))
               (catch Throwable ei
-                (-> ei (.getCause) ex-data :meta :name)))))))
+                (-> ei (.getCause) ex-data :meta :name)))))
+     (is (re-find #"Undefined"
+                  (try
+                    (eval '(do (use 'maker.core)
+                               (make non-existent)))
+                    (catch Throwable th
+                      (-> th (.getCause) str)))))))
 
 ;-------------------------------------------------------------------------------
 ;configuration support

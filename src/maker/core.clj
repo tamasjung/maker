@@ -63,19 +63,21 @@
 
 (defn goal-sym-goal-var
   [ns goal-sym]
-  (->> goal-sym
+  (->> (or (-> goal-sym meta ::goal)
+           goal-sym)
        with-maker-postfix
        symbol
        (*ns-resolve-fn* ns)))
 
 (defn goal-param-goal-local
-  [context-ns ns name]
-  (if (goal-sym-goal-var context-ns name)
-    (symbol name)
-    (-> [ns name]
-        (->> (string/join "/"))
-        non-q-sym
-        symbol)))
+  [context-ns ns param]
+  (if (and (goal-sym-goal-var context-ns param)
+           (-> param symbol namespace not))
+    (symbol param)
+    (->> [ns (name param)]
+         (string/join "/")
+         non-q-sym
+         symbol)))
 
 (defn goal-var-goal-local
   [context-ns goal-var]
@@ -294,6 +296,8 @@
                        (map (partial goal-sym-goal-var context-ns))
                        set)
          end-goal-var (goal-sym-goal-var context-ns goal-sym)
+         _ (when-not end-goal-var
+             (throw (ex-info (str "Undefined end-goal:" goal-sym) {:end-goal goal-sym})))
          vars-and-states (sorted-deps {:stack [] :stack-set #{} :sorted-set env-vars}
                                       end-goal-var)
          dep-models (mapv (partial apply goal-model) vars-and-states)]

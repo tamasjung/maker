@@ -20,7 +20,6 @@
 
 (defn cljs-ns-resolve
   [ns-sym sym]
-  #_(pprint ["cljs-ns-resolve" ns-sym sym] *err*)
   (or (an-api/ns-resolve ns-sym sym)
       (when-let [syms-ns (-> (an-api/current-state) deref ::an/namespaces ns-sym :uses sym)]
         ;FIXME rename is not covered here
@@ -38,7 +37,7 @@
              m/*goal-var-to-cases-fn* #(or
                                          #_(do (pprint ["gvtc" @cases-map-atom] *err*) nil)
                                          (@cases-map-atom %)
-                                           (throw (ex-info (str "Missing case for" %) {:case %})))]
+                                         (throw (ex-info (str "Missing case for" %) {:case %})))]
      ~@body))
 
 (defmacro make
@@ -86,12 +85,12 @@
 (defmacro defcasegoal
   [multi-goal dispatch-value & args]
   (let [case-goal (-> (str multi-goal "-" dispatch-value) (#'m/free-text-to-symbol-chars) symbol)]
-    `(do (maker.core/defgoal ~case-goal ~@args)
+    `(do (m/defgoal ~case-goal ~@args)
          (register-case ~multi-goal ~dispatch-value ~case-goal))))
 
 (defmacro with-config
   [& args]
   (with-cljs-bindings
-    (apply (resolve 'maker.core/with-config) nil nil args)))
+    (apply (resolve 'm/with-config) nil nil args)))
 
 

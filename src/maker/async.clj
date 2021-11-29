@@ -24,11 +24,12 @@
             (-> goal-var meta ::m/defgoalfn))
       goal-local
       (if in-go
-        `(let [res# (clojure.core.async/<! ~goal-local)]
+        `(let [res# (a/<! ~goal-local)]
            (if (instance? Throwable res#)
              (throw res#)
              res#))
-        `(let [res# (clojure.core.async/<!! ~goal-local)]
+        ;TBD: NOT USED ATM
+        `(let [res# (a/<!! ~goal-local)]
            (if (instance? Throwable res#)
              (throw res#)
              res#))))))
@@ -43,7 +44,7 @@
 
 #_(defmethod goal-maker-call [::sequential ::async-goal-channel]
     [ctx end-goal goal-map]
-    `(clojure.core.async/<!! ~(m/goal-maker-call ctx end-goal goal-map)))
+    `(a/<!! ~(m/goal-maker-call ctx end-goal goal-map)))
 
 (defmethod render-assignment-async :direct
   [ctx goal-model]
@@ -52,32 +53,32 @@
 
 #_(defmethod goal-maker-call :in-thread
     [ctx end-goal goal-map]
-    `(let [r# (clojure.core.async/promise-chan)]
-       (clojure.core.async/thread
+    `(let [r# (a/promise-chan)]
+       (a/thread
          (try
-           (clojure.core.async/put! r#
+           (a/put! r#
                                     ~(m/goal-maker-call ctx end-goal goal-map))
            (catch Throwable th#
-             (clojure.core.async/put! r# th#))))
+             (a/put! r# th#))))
        r#))
 
 (defmethod render-assignment-async :in-go
   [ctx goal-model]
   (let [[local call] (m/render-assignment ctx goal-model)]
     [local
-     `(let [r# (clojure.core.async/promise-chan)]
-        (clojure.core.async/go
+     `(let [r# (a/promise-chan)]
+        (a/go
           (try
-            (clojure.core.async/put! r#
+            (a/put! r#
                                      ~call)
             (catch Throwable th#
-              (clojure.core.async/put! r# th#))))
+              (a/put! r# th#))))
         r#)]))
 
 (defn- make>-with
   [goal env]
   (let [env (or env {})]
-    `(clojure.core.async/go
+    `(a/go
        (try
          (a/<! ~(m/make-with {:render-assignment-fn render-assignment-async
                               :var-to-local-fn (partial m/goal-var-goal-local *ns*)
@@ -105,8 +106,8 @@
   (let [{:keys [doc params body]} (m/args-map [[:doc string?]
                                                [:params vector?]]
                                               fdecl)
-        callback-body `[(let [result# (clojure.core.async/promise-chan)
-                              ~'yield (fn yield-fn# [v#] (clojure.core.async/put! result# v#))]
+        callback-body `[(let [result# (a/promise-chan)
+                              ~'yield (fn yield-fn# [v#] (a/put! result# v#))]
                           ~@body
                           result#)]]
     `(defgoal> ~name
