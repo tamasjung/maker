@@ -5,12 +5,8 @@
 
 
 
-(require '[clojure.pprint :refer [pprint]])                 ;FIXME remove
-
-
 (defn cljs-meta
   [var]
-  #_(pprint ["cljs-meta" var] *err*)
   (let [[ns the-name] (-> var :name ((juxt (comp symbol namespace) name)))]
     (-> var
         :meta
@@ -42,7 +38,6 @@
 
 (defmacro make
   [goal-name]
-  #_(pprint [*ns* &env] *err*)
   ;FIXME prone to unbinding if some part is lazy, consider other mechanisms for replacing these fns
   (with-cljs-bindings
     (m/make-with goal-name (-> &env :locals))))

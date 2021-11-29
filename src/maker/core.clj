@@ -3,12 +3,12 @@
             [clojure.string :as string]
             [maker.graph :as graph]
             [clojure.string :as str]))
-(require '[clojure.pprint :refer [pprint]])                 ;FIXME remove
+
 ;dynamized functions b/c of clj-cljs differences
 
 (def ^:dynamic *meta-fn* meta)
 
-(def ^:dynamic *ns-resolve-fn* ns-resolve #_(fn [n s] #_(pprint ["ooo" n s] *err*) (ns-resolve n s)))
+(def ^:dynamic *ns-resolve-fn* ns-resolve)
 
 (def ^:dynamic *ns-fn* #(do *ns*))
 
@@ -97,7 +97,6 @@
 
 (defn- dependencies
   [goal-var]
-  #_(pprint ["deps" goal-var] *err*)
   (let [{:keys [ns arglists] :as var-meta} (*meta-fn* goal-var)]
     (when (next arglists)
       ;multiarity is ambigious
@@ -150,7 +149,6 @@
 
 (defn- goalvar-to-multi-registry
   [goal-var]
-  #_(pprint ["gtmr" goal-var *ns-resolve-fn*] *err*)
   (->> goal-var
        *meta-fn*
        :name
@@ -165,7 +163,6 @@
 
 (defn case-model
   [multi-goal-var sorting-state [dispatch-value case-goal-var]]
-  #_(pprint ["cm" dispatch-value case-goal-var] *err*)
   (let [case-dep-and-states (sorted-deps sorting-state case-goal-var)
         ;since the case goal is 'sorted' then the multicase-goal is sorted too
         ;let's put into the 'state' manually
@@ -398,7 +395,6 @@
 ;FIXME TBD it is possible without refer. A generic closure would be better.
 (defmacro defgoalfn                                         ;better name? dash or not dash
   [name & args]
-  ;(pprint ["iiii" name args] *err*)
   (let [{:keys [doc params body goal-sym]} (args-map [[:doc string?]
                                                       [:params vector?]
                                                       [:goal-sym symbol?]]
