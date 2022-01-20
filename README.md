@@ -40,7 +40,7 @@ issue in the next 3 minutes.
 ```clj
 [maker "3.0.0"]
 ```
-To learn [check out](test/maker/core_test.clj) and play with the didactic tests.
+To learn [check out](test/maker/core_test.cljc) and play with the didactic tests.
 
 See how to add spec to your goals: [spec_test.clj](test/maker/spec_test.clj)
 
