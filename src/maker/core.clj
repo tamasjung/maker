@@ -95,6 +95,8 @@
   [(goal-realisation ctx var1)
    (goal-realisation ctx var2)])
 
+(def ^:dynamic *redefinitions* {})
+
 (defn- dependencies
   [goal-var]
   (let [{:keys [ns arglists] :as var-meta} (*meta-fn* goal-var)]
@@ -106,7 +108,8 @@
          (mapv (fn [goal-param]
                  (or (->> goal-param
                           whole-param
-                          (goal-sym-goal-var ns))
+                          (goal-sym-goal-var ns)
+                          (#(get *redefinitions* % %)))
                      (throw (ex-info (str "Undefined dependency: " goal-param " " var-meta (str "++" ns "++"))
                                      {:of var-meta}))))))))
 
@@ -278,7 +281,6 @@
     (case ~(goal-realisation-fn ctx dispatch-goal-var)
       ~@(mapcat (partial render-case-assignment ctx) case-models))])
 
-
 (defn make-with
   ([goal env]
    (make-with {:render-assignment-fn render-assignment
@@ -304,7 +306,12 @@
 
 (defmacro make
   ([goal]
-   (make-with goal &env)))
+   (make-with goal &env))
+  ([goal opts]
+   (binding [*redefinitions* (->> opts eval :redefs
+                                  (mapv (partial mapv (partial goal-sym-goal-var *ns*)))
+                                  (into {}))]
+     (make-with goal &env))))
 
 (defmacro with-config
   "Makes the first parameter as a configuration goal at compile time to extract the keys.

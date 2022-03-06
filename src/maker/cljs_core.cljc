@@ -31,24 +31,25 @@
              m/*ns-fn* #(ns-name *ns*)
              m/*ns-name-fn* identity
              m/*goal-var-to-cases-fn* #(or
-                                         #_(do (pprint ["gvtc" @cases-map-atom] *err*) nil)
                                          (@cases-map-atom %)
                                          (throw (ex-info (str "Missing case for" %) {:case %})))]
      ~@body))
 
 (defmacro make
-  [goal-name]
-  ;FIXME prone to unbinding if some part is lazy, consider other mechanisms for replacing these fns
-  (with-cljs-bindings
-    (m/make-with goal-name (-> &env :locals))))
+  ([goal-name]
+   `(make ~goal-name nil))
+  ([goal-name opts]
+   ;FIXME prone to unbinding if some part is lazy, consider other mechanisms for replacing these fns
+   (with-cljs-bindings
+     (binding [m/*redefinitions* (when opts (->> opts :redefs
+                                                 (mapv (partial mapv (partial m/goal-sym-goal-var (ns-name *ns*))))
+                                                 (into {})))]
+       (m/make-with goal-name (-> &env :locals))))))
 
 (defmacro defgoalfn
   [& args]
   (with-cljs-bindings
     (apply (resolve 'maker.core/defgoalfn) nil nil args)))
-
-
-
 
 (defmacro defmulticase
   "Defines a multi case goal with its name and the dispatch goal's name."

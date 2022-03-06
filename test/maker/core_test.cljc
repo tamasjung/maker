@@ -362,13 +362,13 @@
    (deftest test-direct-config
      ;if the compile time and runtime configs are different
      (with-config [[:maker.core-test/config-a] #_(keys direct-config) direct-config]
-                    #_(do [config-a 1]
-                          (is (= (make configured)
-                                 "configured!!!"))))
+                  #_(do [config-a 1]
+                        (is (= (make configured)
+                               "configured!!!"))))
      ;if the two config is the same
      (with-config direct-config
-                    (is (= (make configured)
-                           "configured!!!")))))
+                  (is (= (make configured)
+                         "configured!!!")))))
 
 (defgoal shouldnt-be-called
   []
@@ -394,6 +394,38 @@
             11))))
 
 ;-------------------------------------------------------------------------------
+;redefinition support
+
+(defn redef-a'
+  []
+  "a")
+
+(defn redef-b'
+  [redef-a]
+  (str redef-a "b"))
+
+(defn redef-c'
+  []
+  "c")
+
+(defn redef-d'
+  [redef-c]
+  (str redef-c "d"))
+
+(def opts {:redefs '{redef-c redef-b}})
+
+(deftest test-redef
+
+  (is (= "cd" (make redef-d)))
+
+  (is (= "abd"
+         #?(:cljs (make redef-d {:redefs {redef-c redef-b}}))
+         #?(:clj (make redef-d {:redefs '{redef-c redef-b}}))
+         #?(:clj (make redef-d opts)))))
+
+;-------------------------------------------------------------------------------
+
+
 #?(:clj
    (deftest munge-test
      (are [s res] (-> s non-q-sym (= res))
