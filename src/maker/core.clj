@@ -14,8 +14,6 @@
 
 (def ^:dynamic *ns-name-fn* ns-name)
 
-
-
 (defn non-q-sym
   "Injective munge"
   [s]
@@ -23,6 +21,14 @@
       (string/replace "+" "++")
       (string/replace "/" "+!")
       (string/replace "." "+_")))
+
+(defn non-q-sym-inv
+  [s]
+  (-> s
+      (string/replace "++" " ")
+      (string/replace "+!" "/")
+      (string/replace "+_" ".")
+      (string/replace " " "+")))
 
 (defn with-maker-postfix
   [s]
@@ -63,11 +69,12 @@
 
 (defn goal-sym-goal-var
   [ns goal-sym]
-  (->> (or (-> goal-sym meta ::goal)
-           goal-sym)
-       with-maker-postfix
-       symbol
-       (*ns-resolve-fn* ns)))
+  (let [sym (->> (or (-> goal-sym meta ::goal)
+                     goal-sym)
+                 with-maker-postfix
+                 symbol)]
+    (or (*ns-resolve-fn* ns sym)
+        (*ns-resolve-fn* ns (-> sym non-q-sym-inv symbol)))))
 
 (defn goal-param-goal-local
   [context-ns ns param]
@@ -327,33 +334,18 @@
         config-key-maps (->> config-keys
                              (map #(let [ns-sym (-> % namespace symbol)]
                                      {:config-key %
-                                      :ns-sym ns-sym
-                                      :name (-> % name with-maker-postfix symbol)
                                       :goal-local (if (= ns-sym context-ns-name)
                                                     ;TBD is this discrepancy fine?
                                                     (-> % name symbol)
                                                     (goal-param-goal-local (*ns-fn*)
                                                                            ns-sym
-                                                                           (-> % name symbol)))})))
-        refers (->> config-key-maps
-                    (remove #(= context-ns-name (:ns-sym %)))
-                    (map #(let [the-name (-> % :name)]
-                            (list 'refer `(quote ~(-> % :ns-sym))
-                                  :only `(quote [~the-name])
-                                  :rename `(quote ~{the-name (-> % :goal-local with-maker-postfix symbol)})))))]
-    ;TBD could we eliminate this 'hidden' code
+                                                                           (-> % name symbol)))})))]
 
-    (->> refers
-         (map eval)
-         doall)
     `(let [~'config ~config-form]
        (when-let [~'missing-keys (->> ~(vec config-keys)
                                       (remove #(contains? ~'config %))
                                       seq)]
          (throw (ex-info (str "Missing config keys " (string/join ", " ~'missing-keys)) {})))
-       ;;FIXME comment below and don't render if refers is empty
-       (comment "the next 'refer' line(s) would be too late here and called during compile time"
-                ~@refers)
        (let ~(->> config-key-maps
                   (map #(list (:goal-local %) (list 'get 'config (:config-key %))))
                   (reduce concat)
@@ -399,7 +391,6 @@
                                         :refer [~the-name]
                                         :rename ~{the-name (-> (goal-var-goal-local (*ns-fn*) %) with-maker-postfix symbol)}]))))))
 
-;FIXME TBD it is possible without refer. A generic closure would be better.
 (defmacro defgoalfn                                         ;better name? dash or not dash
   [name & args]
   (let [{:keys [doc params body goal-sym]} (args-map [[:doc string?]
@@ -414,7 +405,6 @@
         deps-goal-vars (dependencies base-goal-var)
         additional-param-goal-vars (remove (set param-goal-vars) deps-goal-vars)]
     `(do
-       ~@(build-refers-for additional-param-goal-vars)
        (defgoal ~(vary-meta name assoc ::defgoalfn true)
          ~@(concat
              (rebuild-args doc (->> additional-param-goal-vars

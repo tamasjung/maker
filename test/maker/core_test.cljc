@@ -5,14 +5,12 @@
   (:require #?(:clj [clojure.test :refer :all])
             #?(:cljs [cljs.test :refer-macros [deftest is testing run-tests]])
             #?(:clj [maker.core :refer :all])
+            [clojure.test.check.generators :as gen]
             [ns2 :refer [ns2a' ns3a-proxy' ns2i' ns2b']]    ;the point is: ns3 shouldn't be required directly here ever
             [ns1 :refer [ns1a']]
             [clojure.string :as string]))
 
 ;-------------------------------------------------------------------------------
-#_(defmacro zzz [& forms]
-    `(do ~@(take-while #(not= % :ZZZ) forms)))
-;(require '[clojure.pprint :refer [pprint]]);FIXME remove
 
 (defn simple'
   []
@@ -428,8 +426,17 @@
 
 #?(:clj
    (deftest munge-test
-     (are [s res] (-> s non-q-sym (= res))
+     (are [s res] (and (-> s non-q-sym (= res))
+                       (-> s non-q-sym non-q-sym-inv (= s)))
                   "aa" "aa"
                   "a.b/c" "a+_b+!c"
-                  "ab/c" "ab+!c")))
-
+                  "ab/c" "ab+!c"
+                  "+++/++" "+++++++!++++")))
+#?(:clj
+   (deftest generated-munge-test
+     (let [strs (-> (gen/elements [\/ \. \_ \+ \! \a])
+                    gen/vector
+                    (->> (gen/fmap (partial apply str)))
+                    (gen/sample 100))]
+       (doseq [s strs]
+         (is (= s (->> s non-q-sym non-q-sym-inv str)))))))
