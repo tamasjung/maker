@@ -5,11 +5,11 @@
   (:require #?(:clj [clojure.test :refer :all])
             #?(:cljs [cljs.test :refer-macros [deftest is testing run-tests]])
             #?(:clj [maker.core :refer :all])
+            #?(:clj [maker.dev :refer [trace ppr]])
             [clojure.test.check.generators :as gen]
             [ns2 :refer [ns2a' ns3a-proxy' ns2i' ns2b']]    ;the point is: ns3 shouldn't be required directly here ever
             [ns1 :refer [ns1a']]
             [clojure.string :as string]))
-
 ;-------------------------------------------------------------------------------
 
 (defn simple'
@@ -17,7 +17,7 @@
   "simple")
 
 ;; simple is called a 'goal'
-;; simple' is the 'maker function
+;; simple' is the maker function
 ;; "simple" is the value of the goal
 (deftest test-simple
   (is (= "simple"
@@ -93,13 +93,13 @@
 
 (def call-counter (atom 0))
 
+;; the next is a declaration of a goal without definition
+(defgoal? iterator-item)
+
 (defn factor'
   []
   (swap! call-counter inc)
   2)
-
-;; the next is a declaration of a goal without definition
-(defgoal? iterator-item)
 
 (defn iterator-items'
   []
@@ -125,30 +125,28 @@
   ;;factor' was called 10 times, usually this is not what you want...so read on.
   (is (= @call-counter 10)))
 
-(defgoalfn collected-item-fn [iterator-item] collected-item)
+#?(:clj (defgoalfn collected-item-fn [iterator-item] collected-item))
 ;TBD What if the collected-item is a <>
 
-(defn another-collected-items2'
-  [iterator-items collected-item-fn]
-  (map collected-item-fn iterator-items))
+#?(:clj (defn another-collected-items2'
+          [iterator-items collected-item-fn]
+          (map collected-item-fn iterator-items)))
 
-(deftest iterator-with-goalfn
-  (reset! call-counter 0)
-  (is (= (last (make another-collected-items2))
-         18))
-  (is (= 1 @call-counter)))
+#?(:clj (deftest iterator-with-goalfn
+          (reset! call-counter 0)
+          (is (= (last (make another-collected-items2))
+                 18))
+          (is (= 1 @call-counter))))
 
 #?(:clj (defgoalfn g-fn [ns2i] ns2b))
 ;FIXME it doesn't work for cljs
 #?(:clj (deftest cross-ns-goalfn
           (is (= "221" ((make g-fn) 1)))))
 
-#?(:clj
-   (deftest test-spec
-     (eval '(do (use 'maker.core)
-                (defgoal sb [])
-                (defgoal sa [sb] 1)
-                (make sa)))))
+#?(:clj (defgoalfn inline-goal-fn [iterator-item] [collected-item]
+                   collected-item))
+#?(:clj (deftest test-inline-defgoalfn
+          (is (= ((make inline-goal-fn) 10) 20))))
 
 
 
@@ -162,12 +160,12 @@
 (defmulti multi' {:arglists '([multi-dep])} count)
 
 (defmethod multi' 3
-  [_]
-  "yes")
+  [multi-dep]
+  (str "yes:" multi-dep))
 
 (deftest test-multi
   (is (= (make multi)
-         "yes")))
+         "yes:123")))
 
 ;-------------------------------------------------------------------------------
 
@@ -211,6 +209,8 @@
 ; (case ..) and the return value of 'choice' is used as the dispatcher and the
 ; matching choice (in our case choice1) will be 'made'.
 ; Check the expansion of make below.
+; if you were wandering why are those inline fn definitions they are b/c of
+; avoiding too big fn body error.
 (deftest choice-test
   (is (= (let [choice-env :choice1]
            (make end))
@@ -294,7 +294,7 @@
 (defgoal db-conn
   [config]
   (stop-fn #(println "stop the db-conn."))
-  (str "the db-conn"))
+  "the db-conn")
 
 (deftest my-little-component-framework
   (is (= (make db-conn)
@@ -359,10 +359,9 @@
 #?(:clj
    (deftest test-direct-config
      ;if the compile time and runtime configs are different
-     (with-config [[:maker.core-test/config-a] #_(keys direct-config) direct-config]
-                  #_(do [config-a 1]
-                        (is (= (make configured)
-                               "configured!!!"))))
+     (with-config [[:maker.core-test/config-a] direct-config]
+                  (is (= (make configured)
+                         "configured!!!")))
      ;if the two config is the same
      (with-config direct-config
                   (is (= (make configured)
@@ -420,6 +419,26 @@
          #?(:cljs (make redef-d {:redefs {redef-c redef-b}}))
          #?(:clj (make redef-d {:redefs '{redef-c redef-b}}))
          #?(:clj (make redef-d opts)))))
+
+;-------------------------------------------------------------------------------
+;destruction
+
+(def destr-m' {:aaa/destr-a "a"
+               :destr-b [11 12]
+               :destr-e {:destr-f "F"}})
+
+#?(:clj (destruct-goals {:aaa/keys [destr-a]
+                         {:keys [destr-f]} :destr-e
+                         [destr-c destr-d :as destr-cd] :destr-b
+                         :as destr-m2} destr-m))
+#?(:clj
+   (deftest test-destruct-goal
+     (is (= "a" (make destr-a)))
+     (is (= 11 (make destr-c)))
+     (is (= [11 12] (make destr-cd)))
+     (is (= (make destr-m) (make destr-m2)))
+     (is (= "F" (make destr-f)))))
+
 
 ;-------------------------------------------------------------------------------
 

@@ -102,6 +102,10 @@
   [(goal-realisation ctx var1)
    (goal-realisation ctx var2)])
 
+(defn goal-meta
+  [goal-var]
+  (->> goal-var *meta-fn* (map key) (some #{::multicase})))
+
 (def ^:dynamic *redefinitions* {})
 
 (defn- dependencies
@@ -131,7 +135,7 @@
 
 (defn multicase?
   [goal-var]
-  (-> goal-var *meta-fn* ::multicase true?))
+  (-> goal-var goal-meta (= ::multicase)))
 
 (defn- take-until
   [pred coll]
@@ -168,8 +172,7 @@
 (def ^:dynamic *goal-var-to-cases-fn* (comp deref #_the_atom deref #_the_var goalvar-to-multi-registry))
 
 (defmulti goal-model (fn [goal-var _]
-                       (when (multicase? goal-var)
-                         ::multicase)))
+                       (goal-meta goal-var)))
 
 (defn case-model
   [multi-goal-var sorting-state [dispatch-value case-goal-var]]
@@ -251,7 +254,7 @@
 
 (defn- free-text-to-symbol-chars
   [txt]
-  (subs (str/replace txt #"[^a-zA-Z0-9\*\+\!\-\_\'\?\<\>\=\:]" "-")
+  (subs (str/replace txt #"[^a-zA-Z0-9\*\+\!\-\_\'\?\<\>\=]" "-")
         0 (min 100 (count txt))))
 
 (defn render-case-assignment
@@ -266,10 +269,10 @@
     :as _case-model}]
   (let [params (mapv var-to-local-fn used-dep-vars)
         ;only for debugging purpose, it will be on the stack-trace
-        fn-name (-> (str dispatch-value
+        fn-name (-> (str "case-fn"
+                         dispatch-value
                          "-"
-                         (var-to-local-fn multi-goal-var)
-                         "-fn")
+                         (var-to-local-fn multi-goal-var))
                     free-text-to-symbol-chars
                     gensym)
         assignments (reduce into []
@@ -322,7 +325,7 @@
 
 (defmacro with-config
   "Makes the first parameter as a configuration goal at compile time to extract the keys.
-  At runtime it checks if the same keys are present."
+  At runtime, it checks if the same keys are present."
   [configs & body]
   ;is it less readable if it is (more) hygenic? is it better?
   ;TODO ^^^
@@ -382,43 +385,48 @@
     `(defn ~(maker-fn-name-with-goal-meta name)
        ~@(rebuild-args doc params body))))
 
-(defn- build-refers-for
-  [goal-vars]
-  (->> goal-vars
-       (remove #(= (*ns-fn*) (-> % *meta-fn* :ns)))         ;FIXME remove those which already have aliases in the (*ns-fn*) too
-       (mapv #(let [the-name (-> % *meta-fn* :name symbol)]
-                (list 'require `(quote [~(-> % *meta-fn* :ns *ns-name-fn*)
-                                        :refer [~the-name]
-                                        :rename ~{the-name (-> (goal-var-goal-local (*ns-fn*) %) with-maker-postfix symbol)}]))))))
-
-(defmacro defgoalfn                                         ;better name? dash or not dash
+(defmacro defgoalfn
   [name & args]
-  (let [{:keys [doc params body goal-sym]} (args-map [[:doc string?]
-                                                      [:params vector?]
-                                                      [:goal-sym symbol?]]
-                                                     args)
-        param-goal-vars (map (partial goal-sym-goal-var (*ns-fn*)) params)
-        ;param-map entry: [param-goal-map param]
-        param-map (->> (map vector param-goal-vars params)
-                       (into {}))
-        base-goal-var (goal-sym-goal-var (*ns-fn*) goal-sym)
-        deps-goal-vars (dependencies base-goal-var)
-        additional-param-goal-vars (remove (set param-goal-vars) deps-goal-vars)]
-    `(do
-       (defgoal ~(vary-meta name assoc ::defgoalfn true)
-         ~@(concat
-             (rebuild-args doc (->> additional-param-goal-vars
-                                    (mapv (partial goal-var-goal-local (*ns-fn*))))
-                           body)
-             [`(fn ~params
-                 (~(-> goal-sym with-maker-postfix symbol)
-                   ~@(mapv #(or (param-map %)
-                                (goal-var-goal-local (*ns-fn*) %)) deps-goal-vars)))])))))
+  (let [{:keys [doc fn-params goal-params body]} (args-map [[:doc string?]
+                                                            [:fn-params vector?]
+                                                            [:goal-params vector?]]
+                                                           args)]
+    (if (and fn-params goal-params body)
+      (let [generated-goal-name (gensym (str name "-goal"))]
+        `(do
+           (defgoal ~generated-goal-name
+             ~goal-params
+             ~@body)
+           (defgoalfn ~@(concat (if doc
+                                  [doc]
+                                  [])
+                                [name fn-params generated-goal-name]))))
+      (let [{:keys [doc params body goal-sym]} (args-map [[:doc string?]
+                                                          [:params vector?]
+                                                          [:goal-sym symbol?]]
+                                                         args)
+            param-goal-vars (map (partial goal-sym-goal-var (*ns-fn*)) params)
+            param-map (->> (map vector param-goal-vars params)
+                           (into {}))
+            base-goal-var (goal-sym-goal-var (*ns-fn*) goal-sym)
+            outer-param-goal-vars (second
+                                    (graph/collect-closest-independents dependencies param-map base-goal-var))]
+
+        `(defgoal ~(vary-meta name assoc ::defgoalfn true)
+           ~@(concat
+               (rebuild-args doc (->> outer-param-goal-vars
+                                      (mapv (partial goal-var-goal-local (*ns-fn*))))
+                             body)
+               [`(fn ~(-> (str name '- (string/join "-" params))
+                          free-text-to-symbol-chars
+                          gensym)
+                   ~params
+                   (make ~goal-sym))]))))))
+
 
 (defmacro defgoal?
   [name]
   (list 'declare (maker-fn-name-with-goal-meta name)))
-
 
 (defmacro defmulticase
   "Defines a multi case goal with its name and the dispatch goal's name."
@@ -461,4 +469,26 @@
     `(do
        (defgoal ~case-goal ~@args)
        ~(apply (resolve 'maker.core/register-case) nil nil multi-goal dispatch-value [case-goal]))))
+
+(defmacro destruct-goals
+  [destructuring-exp from-name]
+  (loop [[v expr & rem-pairs] (destructure [destructuring-exp from-name])
+         so-far #{from-name}
+         res []
+         substitutions {}]
+    (if v
+      (let [param (->> expr
+                       (tree-seq coll? seq)
+                       (some so-far))
+
+
+            goal-def `(defgoal ~v [~(substitutions param param)] ~(if (seq? expr)
+                                                                    (map #(substitutions % %) expr)
+                                                                    (substitutions expr expr)))]
+        (if (= v param)
+          (recur rem-pairs so-far res substitutions)
+          (if (= from-name expr)
+            (recur rem-pairs (conj so-far v) res (conj substitutions [v expr]))
+            (recur rem-pairs (conj so-far v) (conj res goal-def) substitutions))))
+      res)))
 

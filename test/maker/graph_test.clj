@@ -33,6 +33,25 @@
                                         1 [1]}
                                        0))))
 
+(deftest closest-independents-test
+  (let [nodes {:a [:b :c]
+               :b [:c :d :e]
+               :c [:d]
+               :d []
+               :e [:f]
+               :f nil}]
+    (are [root dependent-pred independents]
+      (= (second (collect-closest-independents nodes dependent-pred root)) independents)
+
+      :a #{:d} #{:e}
+      :a #{:e} #{:c :d}
+      :b #{:c} #{:d :e}
+      :a #{} #{:a}
+      :a #{:a} #{}
+      :d #{} #{:d}
+      :f #{:f} #{}
+      :f #{} #{:f})))
+
 
 (deftest perf-test
 
