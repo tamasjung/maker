@@ -1,5 +1,4 @@
 
-[](doc/Cima_da_Conegliano_God_the_Father.jpg)
 
 # maker
 
@@ -38,7 +37,7 @@ issue in the next 3 minutes.
 
 ## Usage, learn
 ```clj
-[maker "3.0.0"]
+[maker "3.2.0"]
 ```
 To learn [check out](test/maker/core_test.cljc) and play with the didactic tests.
 
