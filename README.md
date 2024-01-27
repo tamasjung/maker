@@ -49,6 +49,6 @@ See how to add spec to your goals: [spec_test.clj](test/maker/spec_test.clj)
 
 ## License
 
-Copyright © 2015-2021 Tamás Jung
+Copyright © 2015-2024 Tamás Jung
 
 Distributed under the MIT License.
