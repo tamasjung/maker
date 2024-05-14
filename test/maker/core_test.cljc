@@ -144,9 +144,9 @@
           (is (= "221" ((make g-fn) 1)))))
 
 #?(:clj (defgoalfn inline-goal-fn [iterator-item] [collected-item]
-                   collected-item))
+                   (str collected-item)))
 #?(:clj (deftest test-inline-defgoalfn
-          (is (= ((make inline-goal-fn) 10) 20))))
+          (is (= ((make inline-goal-fn) 10) "20"))))
 
 
 

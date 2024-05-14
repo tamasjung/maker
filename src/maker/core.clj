@@ -395,7 +395,7 @@
       (let [generated-goal-name (gensym (str name "-goal"))]
         `(do
            (defgoal ~generated-goal-name
-             ~goal-params
+             ~(into goal-params fn-params)
              ~@body)
            (defgoalfn ~@(concat (if doc
                                   [doc]
