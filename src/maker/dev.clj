@@ -24,3 +24,7 @@
       (str/replace #"java\.lang\." "")
       (str/replace #"__\d+__auto__" "#")
       print))
+
+(defmacro ->-
+  [m & args]
+  `(trace ppr ~m ~@args))
